@@ -1,0 +1,39 @@
+name: Publicar site
+
+on:
+  push:
+  schedule:
+    # segunda-feira, depois da atualização semanal do tm-clubes
+    - cron: "47 11 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Baixar dados do tm-clubes (branch padrão)
+        uses: actions/checkout@v4
+        with:
+          repository: Matheusbruno7/tm-clubes
+          path: _tm-clubes
+      - name: Copiar dados para o site
+        run: scripts/sincronizar_dados.sh _tm-clubes
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

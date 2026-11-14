@@ -1,0 +1,494 @@
+import { carregarAtletas, carregarModelo, carregarRanking, FORMATOS, REGIOES, regiaoDe, SEM_ESTADO, simular } from "./dados.js";
+import { ativarDicas, barrasAgrupadas, barrasVerticais, esc, fmt, legenda, pct } from "./graficos.js";
+
+const main = document.getElementById("conteudo");
+const CORES = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)"];
+const POR_PAGINA = 50;
+const ICONE_INFO = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+
+let R; // ranking_clubes.json
+const porId = new Map();
+
+// ---------------- utilidades ----------------
+function rota() {
+  const h = location.hash.replace(/^#\/?/, "");
+  const [caminho, query = ""] = h.split("?");
+  return { partes: caminho.split("/").filter(Boolean), q: new URLSearchParams(query) };
+}
+function irPara(caminho, q) {
+  const s = q && [...q].length ? `?${q}` : "";
+  location.hash = `#/${caminho}${s}`;
+}
+function atualizarQuery(caminho, q) {
+  const s = [...q].length ? `?${q}` : "";
+  history.replaceState(null, "", `#/${caminho}${s}`);
+}
+const campoForca = (sexo) => (sexo === "M" ? "forca_masculino" : sexo === "F" ? "forca_feminino" : "forca");
+const ufRotulo = (uf) => (uf === SEM_ESTADO ? "Sem estado" : uf);
+const aviso = () => `<div class="aviso">${ICONE_INFO}<div><b>Os dados usam os números dos atletas do último ano.</b> Só contam atletas que disputaram eventos oficiais da CBTM nas últimas 52 semanas. Atletas inscritos diretamente por federações aparecem separados.</div></div>`;
+
+function marcarMenu(secao) {
+  document.querySelectorAll(".menu a").forEach((a) => a.classList.toggle("on", a.dataset.secao === secao));
+}
+
+// ---------------- início ----------------
+function viewInicio() {
+  marcarMenu("");
+  const r = R.resumo;
+  const top = R.clubes.slice(0, 5);
+  main.innerHTML = `
+    <section class="home-hero">
+      <h1>Ranking de Clubes do tênis de mesa brasileiro</h1>
+      <p>Compare a <b>Força do Clube</b> de ${fmt(r.clubes_no_ranking)} clubes, calculada com o rating dos ${fmt(r.atletas_ativos_em_clubes)} atletas que jogaram no último ano, e simule confrontos entre equipes.</p>
+      <a class="btn" href="#/clubes">Ver o Ranking de Clubes →</a>
+    </section>
+    <div class="grade g3">
+      <a class="card atalho" href="#/clubes"><h2>Ranking de Clubes</h2><p class="mut">Força do Clube no Brasil, por região e por estado, com filtros por sexo.</p></a>
+      <a class="card atalho" href="#/comparar"><h2>Comparar clubes</h2><p class="mut">Até 4 clubes lado a lado: elite, profundidade, volume e classes de rating.</p></a>
+      <a class="card atalho" href="#/simulador"><h2>Simulador de confronto</h2><p class="mut">A chance de cada clube vencer um confronto por equipes, jogo a jogo.</p></a>
+    </div>
+    <div class="grade g2 mt">
+      <div class="card"><h3>Top 5 · Força do Clube</h3>
+        ${top.map((c, i) => `<div class="comp-l" style="grid-template-columns:24px minmax(0,1fr) 56px"><span class="mut num">${i + 1}</span><a href="#/clubes/${c.id}" class="clube-nome">${esc(c.nome)} <span class="tag">${esc(ufRotulo(c.uf))}</span></a><b>${fmt(c.forca, 1)}</b></div>`).join("")}
+      </div>
+      <div class="card breve"><h3>Em breve</h3><p><b>Pontos ao vivo</b>: quanto cada jogo vale logo após a partida.</p><p><b>Ranking e rating dos atletas</b>: previsões até o fim do ano, metas e torneios a priorizar.</p></div>
+    </div>`;
+}
+
+// ---------------- ranking de clubes ----------------
+function filtrarClubes(q) {
+  const busca = (q.get("q") || "").trim().toLowerCase();
+  const uf = q.get("uf") || "";
+  const regiao = q.get("regiao") || "";
+  const sexo = q.get("sexo") || "";
+  const campo = campoForca(sexo);
+  let lista = R.clubes.filter((c) => (sexo === "M" ? c.atletas_masculino : sexo === "F" ? c.atletas_feminino : c.atletas_ativos) > 0);
+  // posição Brasil de acordo com o sexo escolhido
+  lista = [...lista].sort((a, b) => b[campo] - a[campo] || b.atletas_ativos - a.atletas_ativos);
+  lista.forEach((c, i) => (c._posBr = i + 1));
+  if (regiao) lista = lista.filter((c) => (regiao === "sem" ? c.uf === SEM_ESTADO : regiaoDe(c.uf) === regiao));
+  if (uf) lista = lista.filter((c) => c.uf === uf);
+  if (busca) lista = lista.filter((c) => c.nome_cbtm.toLowerCase().includes(busca));
+  const ordem = q.get("ordem") || "forca";
+  const dir = q.get("dir") === "asc" ? 1 : -1;
+  const chaves = { forca: campo, elite: "elite", prof: "profundidade", atletas: "atletas_ativos", top10: "top10_nacional", nome: "nome" };
+  const k = chaves[ordem] || campo;
+  lista.sort((a, b) => (k === "nome" ? a.nome.localeCompare(b.nome) * -dir : (a[k] - b[k]) * dir) || a._posBr - b._posBr);
+  return { lista, campo, sexo };
+}
+
+function viewClubes(q) {
+  marcarMenu("clubes");
+  const aba = q.get("aba") || "clubes";
+  const r = R.resumo;
+  const ufs = [...new Set(R.clubes.map((c) => c.uf).filter((u) => u !== SEM_ESTADO))].sort();
+  const sexo = q.get("sexo") || "";
+  main.innerHTML = `
+    <div class="cab"><div><h1>Ranking de Clubes</h1><p>Clubes ordenados pela <b>Força do Clube</b> (0 a 1.000), que combina a qualidade dos melhores atletas, a profundidade do elenco e o número de atletas ativos. <a href="#/metodologia">Como é calculada</a></p></div></div>
+    ${aviso()}
+    <div class="grade g4">
+      <div class="card kpi"><div class="v">${fmt(r.clubes_no_ranking)}</div><div class="r">clubes no ranking</div></div>
+      <div class="card kpi"><div class="v">${fmt(r.atletas_ativos_em_clubes)}</div><div class="r">atletas ativos em clubes</div></div>
+      <div class="card kpi"><div class="v">${fmt(r.atletas_ativos_em_federacoes)}</div><div class="r">atletas vinculados a federações</div></div>
+      <div class="card kpi"><div class="v">${fmt(r.clubes_sem_estado)}</div><div class="r">clubes sem estado identificado</div></div>
+    </div>
+    <div class="abas mt" role="tablist">
+      <button role="tab" aria-selected="${aba === "clubes"}" data-aba="clubes">Clubes</button>
+      <button role="tab" aria-selected="${aba === "federacoes"}" data-aba="federacoes">Atletas vinculados a federações</button>
+    </div>
+    <div id="painel"></div>`;
+  main.querySelectorAll("[data-aba]").forEach((b) => b.addEventListener("click", () => { q.set("aba", b.dataset.aba); q.delete("pagina"); irPara("clubes", q); }));
+  const painel = main.querySelector("#painel");
+
+  if (aba === "federacoes") {
+    painel.innerHTML = `
+      <p class="mut">Atletas inscritos diretamente pela federação estadual, sem clube. Eles não entram no Ranking de Clubes.</p>
+      <div class="tabela-wrap"><table><thead><tr><th>Federação</th><th>UF</th><th class="dir">Atletas ativos</th><th class="dir">Masc.</th><th class="dir">Fem.</th><th class="dir">Top 10 nacional</th></tr></thead><tbody>
+      ${R.federacoes.itens.map((f) => `<tr class="clic" data-id="${f.id}"><td class="clube-nome">${esc(f.nome)}</td><td>${esc(ufRotulo(f.uf))}</td><td class="dir num">${fmt(f.atletas_ativos)}</td><td class="dir num">${fmt(f.atletas_masculino)}</td><td class="dir num">${fmt(f.atletas_feminino)}</td><td class="dir num">${fmt(f.top10_nacional)}</td></tr>`).join("")}
+      </tbody></table></div>`;
+    painel.querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", () => irPara(`clubes/${tr.dataset.id}`)));
+    return;
+  }
+
+  painel.innerHTML = `
+    <div class="filtros">
+      <input type="search" id="f-q" placeholder="Buscar clube" value="${esc(q.get("q") || "")}" aria-label="Buscar clube">
+      <select id="f-regiao" aria-label="Região">
+        <option value="">Todas as regiões</option>
+        ${Object.keys(REGIOES).map((rg) => `<option ${q.get("regiao") === rg ? "selected" : ""}>${rg}</option>`).join("")}
+        <option value="sem" ${q.get("regiao") === "sem" ? "selected" : ""}>Clubes sem estado</option>
+      </select>
+      <select id="f-uf" aria-label="Estado">
+        <option value="">Todos os estados</option>
+        ${ufs.map((u) => `<option ${q.get("uf") === u ? "selected" : ""}>${u}</option>`).join("")}
+      </select>
+      <div class="seg" role="group" aria-label="Sexo">
+        ${[["", "Geral"], ["M", "Masculino"], ["F", "Feminino"]].map(([v, n]) => `<button type="button" data-sexo="${v}" aria-pressed="${sexo === v}">${n}</button>`).join("")}
+      </div>
+    </div>
+    <div id="tabela"></div>`;
+
+  const desenhar = () => {
+    const { lista, campo } = filtrarClubes(q);
+    const pagina = Math.max(1, +q.get("pagina") || 1);
+    const paginas = Math.max(1, Math.ceil(lista.length / POR_PAGINA));
+    const pg = lista.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA);
+    const ordem = q.get("ordem") || "forca";
+    const dir = q.get("dir") === "asc" ? "ascending" : "descending";
+    const th = (k, rot, cls = "") => `<th class="${cls}" aria-sort="${ordem === k ? dir : "none"}"><button data-ordem="${k}">${rot}</button></th>`;
+    const filtrado = q.get("uf") || q.get("regiao") || q.get("q");
+    const sexoN = sexo === "M" ? "masculino" : sexo === "F" ? "feminino" : "";
+    main.querySelector("#tabela").innerHTML = lista.length ? `
+      <div class="tabela-wrap"><table class="tab-clubes">
+        <thead><tr><th>#</th>${th("nome", "Clube")}<th>UF</th>${th("forca", `Força do Clube${sexoN ? ` (${sexoN})` : ""}`)}${th("elite", "Elite", "dir")}${th("prof", "Profund.", "dir")}${th("atletas", "Atletas ativos", "dir")}${th("top10", "Top 10 nac.", "dir")}</tr></thead>
+        <tbody>${pg.map((c) => `
+          <tr class="clic" data-id="${c.id}">
+            <td class="pos">${c._posBr}</td>
+            <td><div class="clube-nome">${esc(c.nome)}</div><div class="clube-sub">${c.uf === SEM_ESTADO ? '<span class="tag alerta">sem estado</span>' : `${fmt(c.atletas_masculino)} masc. · ${fmt(c.atletas_feminino)} fem.`}</div></td>
+            <td>${esc(ufRotulo(c.uf))}</td>
+            <td><div class="forca-cel" data-dica="Força do Clube: <b>${fmt(c[campo], 1)}</b> de 1.000"><b>${fmt(c[campo], 1)}</b><span class="barra"><i style="width:${c[campo] / 10}%"></i></span></div></td>
+            <td class="dir num">${fmt(c.elite, 1)}</td>
+            <td class="dir num">${fmt(c.profundidade, 1)}</td>
+            <td class="dir num">${fmt(c.atletas_ativos)}</td>
+            <td class="dir num">${fmt(c.top10_nacional)}</td>
+          </tr>`).join("")}</tbody></table></div>
+      <div class="paginacao"><span>${fmt(lista.length)} clubes${filtrado ? " no filtro" : ""} · a coluna # é a posição no Brasil</span>
+        <span><button class="btn" data-pg="${pagina - 1}" ${pagina <= 1 ? "disabled" : ""}>← Anterior</button> <span class="num">${pagina}/${paginas}</span> <button class="btn" data-pg="${pagina + 1}" ${pagina >= paginas ? "disabled" : ""}>Próxima →</button></span></div>`
+      : `<div class="card vazio">Nenhum clube encontrado com esses filtros.</div>`;
+    main.querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", () => irPara(`clubes/${tr.dataset.id}`)));
+    main.querySelectorAll("[data-ordem]").forEach((b) => b.addEventListener("click", () => {
+      const k = b.dataset.ordem;
+      if ((q.get("ordem") || "forca") === k) q.set("dir", q.get("dir") === "asc" ? "desc" : "asc");
+      else { q.set("ordem", k); q.set("dir", k === "nome" ? "asc" : "desc"); }
+      q.delete("pagina"); atualizarQuery("clubes", q); desenhar();
+    }));
+    main.querySelectorAll("[data-pg]").forEach((b) => b.addEventListener("click", () => { q.set("pagina", b.dataset.pg); atualizarQuery("clubes", q); desenhar(); window.scrollTo({ top: 0 }); }));
+  };
+
+  const mudar = (k, v) => { v ? q.set(k, v) : q.delete(k); q.delete("pagina"); atualizarQuery("clubes", q); desenhar(); };
+  let t;
+  main.querySelector("#f-q").addEventListener("input", (e) => { clearTimeout(t); t = setTimeout(() => mudar("q", e.target.value), 180); });
+  main.querySelector("#f-regiao").addEventListener("change", (e) => { q.delete("uf"); main.querySelector("#f-uf").value = ""; mudar("regiao", e.target.value); });
+  main.querySelector("#f-uf").addEventListener("change", (e) => mudar("uf", e.target.value));
+  main.querySelectorAll("[data-sexo]").forEach((b) => b.addEventListener("click", () => {
+    main.querySelectorAll("[data-sexo]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    mudar("sexo", b.dataset.sexo);
+  }));
+  desenhar();
+}
+
+// ---------------- detalhe do clube ----------------
+async function viewClube(id) {
+  marcarMenu("clubes");
+  const c = porId.get(id);
+  if (!c) { main.innerHTML = `<div class="card vazio">Clube não encontrado. <a href="#/clubes">Voltar ao ranking</a></div>`; return; }
+  const ehFed = R.federacoes.itens.includes(c);
+  const atletas = ((await carregarAtletas()).clubes[id]) || [];
+  const comp = (rot, v, dica) => `<div class="comp-l" data-dica="${esc(dica)}"><span>${rot}</span><span class="barra"><i style="width:${v}%"></i></span><b>${fmt(v, 1)}</b></div>`;
+  const classes = (obj) => Object.entries(obj).map(([k, v]) => ({ rotulo: k, valor: v }));
+  const faixas = ["Base (Sub)", "Absoluto", "Adulto", "Master"].map((f) => ({ rotulo: f, valor: c.faixas_etarias?.[f] || 0 }));
+
+  main.innerHTML = `
+    <a class="voltar" href="#/clubes">← Ranking de Clubes</a>
+    <div class="card det-topo">
+      <div>
+        <h1>${esc(c.nome)}</h1>
+        <p class="mut">${esc(c.nome_cbtm)} · ${c.uf === SEM_ESTADO ? '<span class="tag alerta">sem estado identificado</span>' : `${esc(c.uf)} · ${esc(regiaoDe(c.uf) || "")}`}</p>
+        ${ehFed ? '<p><span class="tag">Atletas vinculados a federação. Não entra no Ranking de Clubes.</span></p>' : `<p><b>${c.posicao_brasil}º</b> no Brasil${c.uf !== SEM_ESTADO ? ` · <b>${c.posicao_estado}º</b> em ${esc(c.uf)}` : ""}</p>
+        <div class="escolha"><a class="btn" href="#/comparar?c=0.${id}">Comparar com outros clubes</a><a class="btn prim" href="#/simulador?a=${id}">Simular confronto</a></div>`}
+      </div>
+      ${ehFed ? "" : `<div class="selo"><div class="r">Força do Clube</div><div class="v">${fmt(c.forca, 1)}</div><div class="r">de 1.000</div></div>`}
+    </div>
+    ${aviso()}
+    <div class="grade g4">
+      <div class="card kpi"><div class="v">${fmt(c.atletas_ativos)}</div><div class="r">atletas ativos (${fmt(c.atletas_cadastrados)} no rating)</div></div>
+      <div class="card kpi"><div class="v">${fmt(c.atletas_masculino)} · ${fmt(c.atletas_feminino)}</div><div class="r">masculino · feminino</div></div>
+      <div class="card kpi"><div class="v">${fmt(c.top10_nacional)}</div><div class="r">atletas no top 10 de algum ranking nacional</div></div>
+      <div class="card kpi"><div class="v">${fmt(c.atletas_paralimpicos)}</div><div class="r">atletas paralímpicos</div></div>
+    </div>
+    <div class="grade g2 mt">
+      <div class="card"><h3>Composição da Força</h3>
+        <div class="comp">
+          ${comp("Elite (50%)", c.elite, "Média do índice dos 5 melhores atletas")}
+          ${comp("Profundidade (30%)", c.profundidade, "Média do índice do 6º ao 15º atleta")}
+          ${comp("Volume (20%)", c.volume, "Número de atletas ativos em escala logarítmica (teto de 50)")}
+        </div>
+        <p class="mut mt" style="font-size:13px">Índice do atleta (0 a 100): rating do atleta comparado à média dos 10 melhores atletas ativos do Brasil do mesmo sexo.</p>
+        ${ehFed ? "" : `<div class="grade g2 mt"><div><h3>Força masculina</h3><b class="num" style="font-size:22px">${fmt(c.forca_masculino, 1)}</b></div><div><h3>Força feminina</h3><b class="num" style="font-size:22px">${fmt(c.forca_feminino, 1)}</b></div></div>`}
+      </div>
+      <div class="card"><h3>Atletas por faixa etária (ranking olímpico)</h3>${barrasVerticais(faixas)}<p class="mut" style="font-size:13px">Um atleta pode aparecer em mais de uma faixa (ex.: Sub-19 e Absoluto).</p></div>
+    </div>
+    <div class="grade g2 mt">
+      <div class="card"><h3>Classes de rating · masculino</h3>${c.atletas_masculino ? barrasVerticais(classes(c.classes_masculino)) : '<p class="mut">Sem atletas masculinos ativos.</p>'}
+        <p class="mut" style="font-size:13px">Rating médio ${fmt(c.rating_medio_masculino)} · mediano ${fmt(c.rating_mediano_masculino)}</p></div>
+      <div class="card"><h3>Classes de rating · feminino</h3>${c.atletas_feminino ? barrasVerticais(classes(c.classes_feminino)) : '<p class="mut">Sem atletas femininas ativas.</p>'}
+        <p class="mut" style="font-size:13px">Rating médio ${fmt(c.rating_medio_feminino)} · mediano ${fmt(c.rating_mediano_feminino)}</p></div>
+    </div>
+    <h2 class="mt" style="margin-top:22px">Atletas ativos</h2>
+    <div class="filtros"><div class="seg" role="group" aria-label="Sexo dos atletas">
+      ${[["", "Todos"], ["M", "Masculino"], ["F", "Feminino"]].map(([v, n]) => `<button type="button" data-sx="${v}" aria-pressed="${v === ""}">${n}</button>`).join("")}</div></div>
+    <div id="lista-atletas"></div>`;
+
+  const lista = (sx) => {
+    const l = atletas.filter((a) => !sx || a.sexo === sx);
+    main.querySelector("#lista-atletas").innerHTML = l.length ? `<div class="tabela-wrap"><table>
+      <thead><tr><th>#</th><th>Atleta</th><th>Sexo</th><th>Classe</th><th class="dir">Rating</th><th class="dir">Índice</th><th class="dir">Melhor posição nacional</th></tr></thead>
+      <tbody>${l.map((a, i) => `<tr><td class="pos">${i + 1}</td><td class="clube-nome">${esc(a.nome)} ${a.paralimpico ? '<span class="tag">paralímpico</span>' : ""}</td><td>${a.sexo === "M" ? "Masc." : "Fem."}</td><td>${esc(a.classe)}</td><td class="dir num">${fmt(a.rating)}</td><td class="dir num">${fmt(a.indice, 1)}</td><td class="dir num">${a.melhor_posicao ? `${a.melhor_posicao}º` : "–"}</td></tr>`).join("")}</tbody></table></div>`
+      : '<div class="card vazio">Nenhum atleta.</div>';
+  };
+  main.querySelectorAll("[data-sx]").forEach((b) => b.addEventListener("click", () => {
+    main.querySelectorAll("[data-sx]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    lista(b.dataset.sx);
+  }));
+  lista("");
+}
+
+// ---------------- seletor de clube (busca) ----------------
+function seletorClube(el, aoEscolher, { excluir = [] } = {}) {
+  el.innerHTML = `<input type="search" class="campo" placeholder="Buscar clube pelo nome" aria-label="Buscar clube" autocomplete="off"><div class="sugestoes" hidden></div>`;
+  const inp = el.querySelector("input"), sug = el.querySelector(".sugestoes");
+  inp.addEventListener("input", () => {
+    const t = inp.value.trim().toLowerCase();
+    if (t.length < 2) { sug.hidden = true; return; }
+    const r = R.clubes.filter((c) => !excluir.includes(c.id) && c.nome_cbtm.toLowerCase().includes(t)).slice(0, 12);
+    sug.innerHTML = r.length ? r.map((c) => `<button type="button" data-id="${c.id}">${esc(c.nome)} <span class="mut">· ${esc(ufRotulo(c.uf))} · Força ${fmt(c.forca, 1)}</span></button>`).join("") : '<div class="vazio">Nenhum clube</div>';
+    sug.hidden = false;
+    sug.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => aoEscolher(b.dataset.id)));
+  });
+  inp.addEventListener("blur", () => setTimeout(() => (sug.hidden = true), 150));
+}
+
+// ---------------- comparar ----------------
+function viewComparar(q) {
+  marcarMenu("comparar");
+  // c=slot.id,slot.id  — o slot fixa a cor de cada clube (a cor segue o clube)
+  const sel = (q.get("c") || "").split(",").filter(Boolean).map((s) => { const [slot, ...r] = s.split("."); return { slot: +slot, id: r.join(".") }; })
+    .filter((s) => porId.has(s.id) && s.slot >= 0 && s.slot < 4).slice(0, 4);
+  const salvar = (lista) => { lista.length ? q.set("c", lista.map((s) => `${s.slot}.${s.id}`).join(",")) : q.delete("c"); irPara("comparar", q); };
+  const clubes = sel.map((s) => ({ ...porId.get(s.id), cor: CORES[s.slot], slot: s.slot }));
+  const series = clubes.map((c) => ({ nome: c.nome, cor: c.cor }));
+
+  main.innerHTML = `
+    <div class="cab"><div><h1>Comparar clubes</h1><p>Escolha até 4 clubes para ver lado a lado.</p></div></div>
+    ${aviso()}
+    <div class="card"><div class="escolha">
+      ${clubes.map((c) => `<span class="chip"><i style="background:${c.cor}"></i>${esc(c.nome)}<button type="button" data-rm="${c.id}" aria-label="Remover ${esc(c.nome)}">×</button></span>`).join("")}
+      ${clubes.length < 4 ? '<div class="busca-clube" id="add"></div>' : ""}
+    </div></div>
+    <div id="cmp"></div>`;
+  main.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => salvar(sel.filter((s) => s.id !== b.dataset.rm))));
+  const add = main.querySelector("#add");
+  if (add) seletorClube(add, (id) => {
+    const livre = [0, 1, 2, 3].find((s) => !sel.some((x) => x.slot === s));
+    salvar([...sel, { slot: livre, id }]);
+  }, { excluir: sel.map((s) => s.id) });
+
+  const cmp = main.querySelector("#cmp");
+  if (clubes.length < 2) { cmp.innerHTML = `<div class="card vazio mt">Adicione pelo menos 2 clubes para comparar.</div>`; return; }
+  const linha = (rot, f) => `<tr><td class="mut">${rot}</td>${clubes.map((c) => `<td class="dir num">${f(c)}</td>`).join("")}</tr>`;
+  const melhorClasse = (c) => {
+    const m = Object.entries(c.classes_masculino).find(([, v]) => v)?.[0];
+    const f = Object.entries(c.classes_feminino).find(([, v]) => v)?.[0];
+    return `${m ? `M: ${m}` : "–"} · ${f ? `F: ${f}` : "–"}`;
+  };
+  cmp.innerHTML = `
+    <div class="grade g2 mt">
+      <div class="card"><h3>Força do Clube</h3>${barrasAgrupadas([
+        { rotulo: "Geral", valores: clubes.map((c) => c.forca / 10) },
+        { rotulo: "Masculino", valores: clubes.map((c) => c.forca_masculino / 10) },
+        { rotulo: "Feminino", valores: clubes.map((c) => c.forca_feminino / 10) },
+      ], series, { sufixo: "" })}${legenda(series)}<p class="mut" style="font-size:13px">Escala de 0 a 100 (Força ÷ 10).</p></div>
+      <div class="card"><h3>Componentes (0 a 100)</h3>${barrasAgrupadas([
+        { rotulo: "Elite", valores: clubes.map((c) => c.elite) },
+        { rotulo: "Profundidade", valores: clubes.map((c) => c.profundidade) },
+        { rotulo: "Volume", valores: clubes.map((c) => c.volume) },
+      ], series)}${legenda(series)}</div>
+    </div>
+    <div class="tabela-wrap mt"><table>
+      <thead><tr><th></th>${clubes.map((c) => `<th class="dir"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${c.cor};margin-right:6px"></span>${esc(c.nome)}</th>`).join("")}</tr></thead>
+      <tbody>
+        ${linha("Força do Clube", (c) => `<b>${fmt(c.forca, 1)}</b>`)}
+        ${linha("Posição no Brasil", (c) => `${c.posicao_brasil}º`)}
+        ${linha("Estado", (c) => esc(ufRotulo(c.uf)))}
+        ${linha("Atletas ativos", (c) => fmt(c.atletas_ativos))}
+        ${linha("Masculino · feminino", (c) => `${fmt(c.atletas_masculino)} · ${fmt(c.atletas_feminino)}`)}
+        ${linha("Atletas no top 10 nacional", (c) => fmt(c.top10_nacional))}
+        ${linha("Rating médio masc.", (c) => fmt(c.rating_medio_masculino))}
+        ${linha("Rating médio fem.", (c) => fmt(c.rating_medio_feminino))}
+        ${linha("Melhor classe", melhorClasse)}
+        ${linha("Paralímpicos", (c) => fmt(c.atletas_paralimpicos))}
+      </tbody></table></div>
+    <div class="escolha mt">${clubes.length >= 2 ? `<a class="btn prim" href="#/simulador?a=${clubes[0].id}&b=${clubes[1].id}">Simular ${esc(clubes[0].nome)} × ${esc(clubes[1].nome)}</a>` : ""}</div>`;
+}
+
+// ---------------- simulador ----------------
+async function viewSimulador(q) {
+  marcarMenu("simulador");
+  const [modelo, atletasDb] = await Promise.all([carregarModelo(), carregarAtletas()]);
+  const formato = FORMATOS[q.get("f")] ? q.get("f") : "mini";
+  const sexo = q.get("sexo") === "F" ? "F" : "M";
+  const ids = [q.get("a"), q.get("b")];
+  const F = FORMATOS[formato];
+
+  main.innerHTML = `
+    <div class="cab"><div><h1>Simulador de confronto</h1><p>A chance de cada clube vencer um confronto por equipes, calculada com a <b>regressão logística</b> dos jogos oficiais. <a href="#/metodologia">Entenda o modelo</a></p></div></div>
+    ${aviso()}
+    <div class="filtros">
+      <div class="seg" role="group" aria-label="Formato">${Object.entries(FORMATOS).map(([k, f]) => `<button type="button" data-f="${k}" aria-pressed="${k === formato}">${esc(f.nome)}</button>`).join("")}</div>
+      <div class="seg" role="group" aria-label="Sexo">${[["M", "Masculino"], ["F", "Feminino"]].map(([v, n]) => `<button type="button" data-sexo="${v}" aria-pressed="${v === sexo}">${n}</button>`).join("")}</div>
+    </div>
+    <p class="mut" style="font-size:13px">${esc(F.descricao)}</p>
+    <div class="vs">
+      <div class="card lado" id="lado-a"></div>
+      <div class="vs-x">×</div>
+      <div class="card lado" id="lado-b"></div>
+    </div>
+    <div id="res" class="mt"></div>`;
+  main.querySelectorAll("[data-f]").forEach((b) => b.addEventListener("click", () => { q.set("f", b.dataset.f); q.delete("ea"); q.delete("eb"); irPara("simulador", q); }));
+  main.querySelectorAll("[data-sexo]").forEach((b) => b.addEventListener("click", () => { q.set("sexo", b.dataset.sexo); q.delete("ea"); q.delete("eb"); irPara("simulador", q); }));
+
+  const equipes = [];
+  ["a", "b"].forEach((lado, i) => {
+    const el = main.querySelector(`#lado-${lado}`);
+    const c = porId.get(ids[i]);
+    const cor = CORES[i];
+    if (!c) {
+      el.innerHTML = `<h3>${i ? "Clube B" : "Clube A"}</h3><div class="busca-clube"></div>`;
+      seletorClube(el.querySelector(".busca-clube"), (id) => { q.set(lado, id); q.delete(`e${lado}`); irPara("simulador", q); });
+      return;
+    }
+    const elenco = (atletasDb.clubes[c.id] || []).filter((a) => a.sexo === sexo).sort((x, y) => y.rating - x.rating);
+    const escolhidos = (q.get(`e${lado}`) || "").split(",").map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < elenco.length);
+    const idx = [];
+    for (let k = 0; k < F.atletas; k++) {
+      const pref = escolhidos[k];
+      idx.push(pref != null && !idx.includes(pref) ? pref : [...elenco.keys()].find((n) => !idx.includes(n) && !escolhidos.slice(k + 1).includes(n)));
+    }
+    const letras = i ? ["X", "Y", "Z"] : ["A", "B", "C"];
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+        <div><span class="chip" style="padding-right:10px"><i style="background:${cor}"></i>${esc(c.nome)}</span><div class="mut" style="font-size:13px;margin-top:4px">${esc(ufRotulo(c.uf))} · Força ${fmt(c.forca, 1)}</div></div>
+        <button class="btn" type="button" data-trocar="${lado}">Trocar</button>
+      </div>
+      ${elenco.length < F.atletas ? `<p class="mt" style="color:var(--alerta)">O clube tem ${elenco.length} atleta(s) ${sexo === "M" ? "masculino(s)" : "feminina(s)"} ativo(s); são necessários ${F.atletas}.</p>` :
+        idx.map((n, k) => `<label for="s-${lado}-${k}">Atleta ${letras[k]}</label><select class="campo" id="s-${lado}-${k}" data-lado="${lado}" data-k="${k}">${elenco.map((a, j) => `<option value="${j}" ${j === n ? "selected" : ""}>${esc(a.nome)} · ${fmt(a.rating)} (${esc(a.classe)})</option>`).join("")}</select>`).join("")}`;
+    el.querySelector("[data-trocar]").addEventListener("click", () => { q.delete(lado); q.delete(`e${lado}`); irPara("simulador", q); });
+    el.querySelectorAll("select").forEach((s) => s.addEventListener("change", () => {
+      const atual = [...el.querySelectorAll("select")].map((x) => x.value);
+      q.set(`e${lado}`, atual.join(",")); irPara("simulador", q);
+    }));
+    if (elenco.length >= F.atletas) equipes[i] = { clube: c, atletas: idx.map((n) => elenco[n]) };
+  });
+
+  const res = main.querySelector("#res");
+  if (!equipes[0] || !equipes[1]) {
+    res.innerHTML = `<div class="card vazio">Escolha os dois clubes para simular. Os ${F.atletas} atletas de maior rating entram por padrão, e você pode trocar.</div>`;
+    return;
+  }
+  const repetidos = equipes.some((e) => new Set(e.atletas.map((a) => a.nome + a.rating)).size < e.atletas.length);
+  const s = simular(formato, equipes[0].atletas, equipes[1].atletas, modelo);
+  const pa = s.prob, pb = 1 - pa;
+  const favorito = pa >= pb ? equipes[0].clube.nome : equipes[1].clube.nome;
+  res.innerHTML = `
+    ${repetidos ? '<div class="aviso">O mesmo atleta foi escolhido duas vezes numa equipe. Ajuste a escalação.</div>' : ""}
+    <div class="card resultado">
+      <h3>Chance de vencer o confronto</h3>
+      <div class="placar">
+        <div><div class="v" style="color:var(--tx)">${pct(pa)}</div><div class="n">${esc(equipes[0].clube.nome)}</div></div>
+        <div class="mut">×</div>
+        <div><div class="v">${pct(pb)}</div><div class="n">${esc(equipes[1].clube.nome)}</div></div>
+      </div>
+      <div class="duelo" data-dica="${esc(`${equipes[0].clube.nome}: <b>${pct(pa)}</b> · ${equipes[1].clube.nome}: <b>${pct(pb)}</b>`)}"><i style="width:${pa * 100}%"></i><i style="width:${pb * 100}%"></i></div>
+      <p class="mut" style="font-size:14px">${Math.abs(pa - pb) < 0.1 ? "Confronto equilibrado." : `Favorito: <b>${esc(favorito)}</b>.`}</p>
+    </div>
+    <div class="card mt"><h3>Jogo a jogo</h3>
+      ${s.jogos.map((j) => `<div class="jogo-l"><b>${esc(j.jogo)}</b><span>${esc(j.a)} <span class="mut num">(${fmt(j.ra)})</span></span>
+        <div class="duelo" data-dica="${esc(`${j.a}: <b>${pct(j.p)}</b> · ${j.b}: <b>${pct(1 - j.p)}</b>`)}"><i style="width:${j.p * 100}%"></i><i style="width:${(1 - j.p) * 100}%"></i></div>
+        <span style="text-align:right">${esc(j.b)} <span class="mut num">(${fmt(j.rb)})</span></span></div>`).join("")}
+      ${legenda([{ nome: equipes[0].clube.nome, cor: CORES[0] }, { nome: equipes[1].clube.nome, cor: CORES[1] }])}
+      <p class="mut mt" style="font-size:13px">Cada jogo usa a chance de vitória pela diferença de rating. Na dupla, usa a média de rating dos dois atletas. Modelo ajustado com ${fmt(modelo.jogos)} jogos oficiais.</p>
+    </div>`;
+}
+
+// ---------------- metodologia ----------------
+async function viewMetodologia() {
+  marcarMenu("metodologia");
+  const m = await carregarModelo().catch(() => null);
+  const met = R.metodologia;
+  main.innerHTML = `
+    <div class="cab"><div><h1>Metodologia</h1><p>Como calculamos a Força do Clube e as chances do simulador.</p></div></div>
+    ${aviso()}
+    <div class="card metod">
+      <h2>De onde vêm os dados</h2>
+      <ul>
+        <li>Rating, ranking olímpico e paralímpico públicos da CBTM (CBTM Live), atualizados semanalmente.</li>
+        <li>Lista oficial de clubes federados da CBTM e rating por estado, usados para identificar o estado de cada clube.</li>
+      </ul>
+      <h2>Quem conta</h2>
+      <ul>
+        <li><b>Atleta ativo:</b> ${esc(met.ativo)}</li>
+        <li><b>Atletas vinculados a federações:</b> atletas inscritos diretamente pela federação estadual aparecem em lista separada e não entram no Ranking de Clubes.</li>
+        <li><b>Estado do clube:</b> primeiro pela lista oficial de clubes federados; depois pelo estado da maioria dos atletas do clube no rating por estado da CBTM; por último pela sigla no nome. Se nada disso funcionar, o clube vai para <b>Clubes sem estado</b> até ser corrigido manualmente.</li>
+      </ul>
+      <h2>Força do Clube (0 a 1.000)</h2>
+      <ul>
+        <li><b>Índice do atleta (0 a 100):</b> ${esc(met.indice)} Referência atual: ${fmt(met.referencias?.masculino)} pontos no masculino e ${fmt(met.referencias?.feminino)} no feminino. Como a referência é por sexo, masculino e feminino ficam na mesma escala, mesmo com faixas de rating diferentes.</li>
+        <li><b>Elite (${met.pesos.elite * 100}%):</b> média do índice dos ${met.n_elite} melhores atletas do clube. Vaga vazia vale 0.</li>
+        <li><b>Profundidade (${met.pesos.profundidade * 100}%):</b> média do índice do ${met.n_elite + 1}º ao ${met.n_elite + met.n_profundidade}º atleta. Vaga vazia vale 0.</li>
+        <li><b>Volume (${met.pesos.volume * 100}%):</b> número de atletas ativos em escala logarítmica, com teto em ${met.teto_volume} atletas.</li>
+        <li>Força = 10 × (0,5 × Elite + 0,3 × Profundidade + 0,2 × Volume). Há também a força só com o masculino e só com o feminino.</li>
+      </ul>
+      <h2>Simulador (regressão logística)</h2>
+      <ul>
+        <li>Nos perfis de rating da CBTM, os pontos de cada jogo divididos pelo peso do evento revelam, pela tabela oficial (Manual da CBTM, item 1.7.2.5.5), a faixa de diferença de rating e se o favorito venceu.</li>
+        <li>Com esses jogos ajustamos P(favorito vence) = 1 / (1 + e<sup>−(b0 + b1·Δ/100)</sup>), em que Δ é a diferença de rating.${m ? ` Coeficientes atuais: b0 = ${fmt(m.b0, 3)}, b1 = ${fmt(m.b1, 3)}, com ${fmt(m.jogos)} jogos.` : ""}</li>
+        <li>O confronto soma as chances de todas as combinações de resultado dos jogos. Formato padrão: Mini Davis da CBTM (Manual, item 1.9.2.10).</li>
+        <li>Limitações: o modelo considera só a diferença de rating, sem forma recente, estilo de jogo ou confronto direto; a força da dupla é aproximada pela média do rating.</li>
+      </ul>
+      ${m ? `<h2>Calibração do modelo</h2><p class="mut">Taxa de vitória do favorito observada nos jogos e prevista pelo modelo, por faixa de diferença de rating.</p>
+      <div class="tabela-wrap"><table><thead><tr><th class="dir">Δ rating (aprox.)</th><th class="dir">Jogos</th><th class="dir">Observado</th><th class="dir">Previsto</th></tr></thead><tbody>
+      ${m.calibracao.map((c) => `<tr><td class="dir num">${fmt(c.delta)}</td><td class="dir num">${fmt(c.jogos)}</td><td class="dir num">${pct(c.observado)}</td><td class="dir num">${pct(c.previsto)}</td></tr>`).join("")}
+      </tbody></table></div>` : ""}
+    </div>`;
+}
+
+// ---------------- roteador ----------------
+async function render() {
+  const { partes, q } = rota();
+  try {
+    if (partes[0] === "clubes" && partes[1]) await viewClube(partes[1]);
+    else if (partes[0] === "clubes") viewClubes(q);
+    else if (partes[0] === "comparar") viewComparar(q);
+    else if (partes[0] === "simulador") await viewSimulador(q);
+    else if (partes[0] === "metodologia") await viewMetodologia();
+    else viewInicio();
+  } catch (e) {
+    console.error(e);
+    main.innerHTML = `<div class="card vazio">Não foi possível montar esta página: ${esc(e.message)}</div>`;
+  }
+}
+
+async function iniciar() {
+  document.getElementById("tema").addEventListener("click", () => {
+    const escuro = document.documentElement.dataset.theme
+      ? document.documentElement.dataset.theme === "dark"
+      : matchMedia("(prefers-color-scheme: dark)").matches;
+    const novo = escuro ? "light" : "dark";
+    document.documentElement.dataset.theme = novo;
+    try { localStorage.setItem("tema", novo); } catch (e) { /* sem armazenamento */ }
+  });
+  ativarDicas();
+  try {
+    R = await carregarRanking();
+  } catch (e) {
+    main.innerHTML = `<div class="card vazio">Não foi possível carregar os dados. ${esc(e.message)}</div>`;
+    return;
+  }
+  [...R.clubes, ...R.federacoes.itens].forEach((c) => porId.set(c.id, c));
+  const d = new Date(R.meta.gerado_em);
+  document.getElementById("atualizacao").textContent = `Dados atualizados em ${d.toLocaleDateString("pt-BR")} às ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.`;
+  window.addEventListener("hashchange", () => { render(); main.focus({ preventScroll: true }); window.scrollTo({ top: 0 }); });
+  render();
+}
+
+iniciar();
