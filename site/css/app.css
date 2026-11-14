@@ -305,3 +305,32 @@ details > summary::-webkit-details-marker { display: none; }
 .cartao-fechar { position: absolute; top: 12px; right: 14px; border: 0; background: none; font-size: 28px; cursor: pointer; color: var(--mut); line-height: 1; }
 .cartao-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
 .cartao-dica { font-size: 12px; margin: 10px 0 0; }
+
+.padroes { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.padroes li { padding: 10px 12px 10px 38px; border-radius: 12px; background: var(--card-2); border: 1px solid var(--ln); position: relative; font-size: 14px; }
+.padroes li::before { position: absolute; left: 12px; top: 9px; font-weight: 800; }
+.padroes li.forte::before { content: "▲"; color: var(--bom); }
+.padroes li.atencao::before { content: "▼"; color: #c62828; }
+.padroes li.neutro::before { content: "●"; color: var(--mut); }
+.forma-l { display: flex; gap: 6px; flex-wrap: wrap; }
+.comp-l small { font-size: 11px; font-weight: 500; }
+.jd-jogo { display: grid; grid-template-columns: 150px minmax(0, 1fr) minmax(150px, 220px) minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--ln); }
+.jd-jogo:last-child { border-bottom: 0; }
+.jd-meta { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.jd-meta small { color: var(--mut); font-size: 12px; line-height: 1.3; }
+.jd-lado { display: flex; flex-direction: column; min-width: 0; color: var(--tx); }
+.jd-lado:hover { text-decoration: none; color: var(--acc); }
+.jd-lado b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jd-lado.fav b { font-weight: 800; }
+.jd-lado small { color: var(--mut); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jd-lado.dir { text-align: right; }
+.jd-prob { display: grid; grid-template-columns: 38px minmax(0, 1fr) 38px; gap: 6px; align-items: center; font-size: 13px; font-weight: 700; }
+.jd-prob span:last-child { text-align: right; }
+.jd-prob .duelo { margin: 0; height: 10px; }
+.jd-res { text-align: center; font-size: 13px; }
+.jd-res small { display: block; color: var(--mut); font-size: 12px; }
+@media (max-width: 760px) {
+  .jd-jogo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .jd-meta { grid-column: 1 / -1; flex-direction: row; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .jd-prob, .jd-res { grid-column: 1 / -1; order: 3; }
+}

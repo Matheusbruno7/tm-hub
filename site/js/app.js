@@ -1,7 +1,9 @@
 import { criarBuscaDeSaldo, normalizar as normalizarTexto, buscarAtletasAoVivo, carregarAtletaAoVivo, carregarAtletas, carregarEventoAoVivo, carregarModelo, carregarRanking, carregarResumoAoVivo, carregarSaldos, FORMATOS, projetarClubes, REGIOES, regiaoDe, SEM_ESTADO, simular } from "./dados.js";
-import { viewAtleta as viewAtletaRanking, viewAtletas } from "./atletas.js";
+import { viewAtletas } from "./atletas.js";
+import { viewPerfil } from "./perfil.js";
 import { abrirCartao, botaoCompartilhar } from "./cartao.js";
-import { viewPontos, viewPontosAtleta } from "./pontos.js";
+import { viewJogosDoDia } from "./jogosdia.js";
+import { viewPontos } from "./pontos.js";
 import { ativarDicas, barrasAgrupadas, barrasVerticais, esc, fmt, legenda, pct } from "./graficos.js";
 
 const main = document.getElementById("conteudo");
@@ -38,7 +40,7 @@ const campoForca = (sexo) => (sexo === "M" ? "forca_masculino" : sexo === "F" ? 
 const ufRotulo = (uf) => (uf === SEM_ESTADO ? "Sem estado" : uf);
 const aviso = () => `<div class="aviso">${ICONE_INFO}<div><b>Os dados usam os números dos atletas do último ano.</b> Só contam atletas que disputaram eventos oficiais da CBTM nas últimas 52 semanas. Atletas inscritos diretamente por federações aparecem separados.</div></div>`;
 
-const SECAO_MENU = { comparar: "clubes", simulador: "clubes", "ao-vivo": "pontos" };
+const SECAO_MENU = { comparar: "clubes", simulador: "clubes", "ao-vivo": "pontos", "jogos-do-dia": "pontos" };
 const subnavClubes = (atual) => `<nav class="subnav" aria-label="Clubes">${[["clubes", "Ranking de Clubes"], ["comparar", "Comparar"], ["simulador", "Simulador de confronto"]].map(([r, n]) => `<a href="#/${r}" class="${r === atual ? "on" : ""}">${n}</a>`).join("")}</nav>`;
 function marcarMenu(secao) {
   secao = SECAO_MENU[secao] || secao;
@@ -307,7 +309,7 @@ async function viewClube(id) {
       alvo.innerHTML = `<h3>Desde a última atualização oficial</h3>
         <div class="grade g2"><div><div class="kpi" style="padding:0"><div class="v ${total > 0 ? "txt-pos" : total < 0 ? "txt-neg" : ""}">${total > 0 ? "+" : ""}${fmt(total)}</div><div class="r">pontos de rating somados (${comSaldo.length} atletas jogaram)</div></div></div>
         <div><div class="kpi" style="padding:0"><div class="v">${pos}º</div><div class="r">provável posição amanhã ${dif > 0 ? `<span class="sobe">▲ ${dif}</span>` : dif < 0 ? `<span class="desce">▼ ${-dif}</span>` : "(mantém)"}</div></div></div></div>
-        ${comSaldo.length ? `<div class="mt">${comSaldo.slice(0, 6).map((a) => `<a class="linha-rank simples" href="#/pontos/${encodeURIComponent(`~${normalizarTexto(a.nome)}|${normalizarTexto(c.nome_cbtm)}`)}"><span class="nome-rank"><b>${esc(a.nome)}</b><small>Classe ${esc(a.classe)} · rating ${fmt(a.rating)}</small></span><span class="pts ${a.saldo > 0 ? "pos" : "neg"}">${a.saldo > 0 ? "+" : ""}${fmt(a.saldo)}</span></a>`).join("")}</div>` : '<p class="mut mt">Nenhum atleta do clube jogou desde a última atualização oficial.</p>'}
+        ${comSaldo.length ? `<div class="mt">${comSaldo.slice(0, 6).map((a) => `<a class="linha-rank simples" href="#/atleta/${encodeURIComponent(`~${normalizarTexto(a.nome)}|${normalizarTexto(c.nome_cbtm)}`)}?aba=jogos"><span class="nome-rank"><b>${esc(a.nome)}</b><small>Classe ${esc(a.classe)} · rating ${fmt(a.rating)}</small></span><span class="pts ${a.saldo > 0 ? "pos" : "neg"}">${a.saldo > 0 ? "+" : ""}${fmt(a.saldo)}</span></a>`).join("")}</div>` : '<p class="mut mt">Nenhum atleta do clube jogou desde a última atualização oficial.</p>'}
         <p class="mut" style="font-size:12px;margin-top:8px">Rating oficial da CBTM com jogos até ${String(s.oficial_ate || "").split("-").reverse().join("/")}. <a href="#/pontos">Ver pontos pós-jogo</a></p>`;
     }).catch(() => { const alvo = main.querySelector("#semana"); if (alvo) alvo.innerHTML = '<h3>Desde a última atualização oficial</h3><p class="mut">Pontos ao vivo indisponíveis no momento.</p>'; });
   }
@@ -318,7 +320,7 @@ async function viewClube(id) {
       <thead><tr><th>#</th><th>Atleta</th><th>Sexo</th><th>Classe</th><th class="dir">Rating</th><th class="dir">Índice</th><th class="dir" data-dica="Posição no rating nacional, entre todos os atletas do mesmo sexo.">Rating Brasil</th><th class="dir" data-dica="Categoria mais alta do Absoluto em que o atleta aparece no ranking olímpico (A é a mais forte) e a posição nela.">Absoluto</th></tr></thead>
       <tbody>${l.map((a, i) => `<tr class="clic" data-atleta="${esc(`~${normalizarTexto(a.nome)}|${normalizarTexto(c.nome_cbtm)}`)}"><td class="pos">${i + 1}</td><td class="clube-nome">${esc(a.nome)} ${a.paralimpico ? '<span class="tag">paralímpico</span>' : ""}</td><td>${a.sexo === "M" ? "Masc." : "Fem."}</td><td><span class="tag">${esc(a.classe)}</span></td><td class="dir num">${fmt(a.rating)}</td><td class="dir"><div class="forca-cel" style="min-width:120px"><b>${fmt(a.indice, 1)}</b><span class="barra"><i style="width:${a.indice}%"></i></span></div></td><td class="dir num">${a.posicao_rating ? `${fmt(a.posicao_rating)}º` : "–"}</td><td class="dir num">${a.absoluto ? `Abs. ${esc(a.absoluto.categoria)} · ${a.absoluto.posicao}º` : "–"}</td></tr>`).join("")}</tbody></table></div>`
       : '<div class="card vazio">Nenhum atleta.</div>';
-    main.querySelectorAll("tr[data-atleta]").forEach((tr) => tr.addEventListener("click", () => irPara(`pontos/${encodeURIComponent(tr.dataset.atleta)}`)));
+    main.querySelectorAll("tr[data-atleta]").forEach((tr) => tr.addEventListener("click", () => irPara(`atleta/${encodeURIComponent(tr.dataset.atleta)}`)));
   };
   main.querySelectorAll("[data-sx]").forEach((b) => b.addEventListener("click", () => {
     main.querySelectorAll("[data-sx]").forEach((x) => x.setAttribute("aria-pressed", x === b));
@@ -604,7 +606,7 @@ async function viewAoVivo() {
       alvo.innerHTML = itens.length ? `<div class="tabela-wrap mt"><table><thead><tr><th>Atleta</th><th class="dir">Oficial</th><th class="dir">Ao vivo</th><th class="dir">Saldo</th><th class="dir">Jogos</th></tr></thead><tbody>
         ${itens.map((a) => `<tr class="clic" data-chave="${esc(a.chave)}"><td><span class="clube-nome">${esc(a.nome)}</span><div class="clube-sub">${esc(a.clube)}</div></td><td class="dir num">${fmt(a.oficial)}</td><td class="dir num"><b>${fmt(a.atual)}</b></td><td class="dir">${pontos(a.saldo)}</td><td class="dir num">${fmt(a.jogos)}</td></tr>`).join("")}
         </tbody></table></div>` : '<p class="mut mt">Nenhum atleta com jogos ainda não publicados no rating oficial.</p>';
-      alvo.querySelectorAll("tr[data-chave]").forEach((tr) => tr.addEventListener("click", () => irPara(`atleta/${encodeURIComponent(tr.dataset.chave)}`)));
+      alvo.querySelectorAll("tr[data-chave]").forEach((tr) => tr.addEventListener("click", () => irPara(`atleta/${encodeURIComponent(`~${tr.dataset.chave}`)}?aba=jogos`)));
     };
     inp.addEventListener("input", () => { clearTimeout(t); t = setTimeout(buscar, 250); });
     if (busca) buscar();
@@ -622,7 +624,7 @@ async function viewEventoAoVivo(slug, q) {
     const cat = q.get("cat") || "";
     const busca = normalizarBusca(q.get("q") || "");
     const lista = jogos.filter((j) => (!cat || j.categoria === cat) && (!busca || `${j.a.nome} ${j.b.nome}`.includes(busca))).reverse();
-    const lado = (l, cls) => `<div class="${cls}"><a href="#/atleta/${encodeURIComponent(l.chave)}" class="${l.venceu ? "venceu" : ""}">${esc(l.nome)}</a>
+    const lado = (l, cls) => `<div class="${cls}"><a href="#/atleta/${encodeURIComponent(`~${l.alias || l.chave}`)}?aba=jogos" class="${l.venceu ? "venceu" : ""}">${esc(l.nome)}</a>
       <div class="linha-meta">${esc(l.clube)} · ${fmt(l.antes)} ${pontos(l.pontos)}</div></div>`;
     main.innerHTML = `
       <a class="voltar" href="#/pontos">← Pontos pós-jogo</a>
@@ -679,9 +681,15 @@ async function render() {
   clearInterval(recarga);
   try {
     const ctx = { main, marcarMenu, irPara, atualizarQuery, carregarModelo };
-    if (partes[0] === "pontos" && partes[1]) await viewPontosAtleta(ctx, decodeURIComponent(partes.slice(1).join("/")));
+    // endereços antigos do perfil do atleta abrem o perfil unificado
+    if ((partes[0] === "pontos" || partes[0] === "atletas") && partes[1]) {
+      const aba = partes[0] === "pontos" ? "jogos" : "previsao";
+      location.replace(`#/atleta/${partes.slice(1).join("/")}?aba=${aba}`);
+      return;
+    }
+    if (partes[0] === "atleta" && partes[1]) await viewPerfil(ctx, decodeURIComponent(partes.slice(1).join("/")), q);
+    else if (partes[0] === "jogos-do-dia") await viewJogosDoDia(ctx, q);
     else if (partes[0] === "pontos") await viewPontos(ctx, q);
-    else if (partes[0] === "atletas" && partes[1]) await viewAtletaRanking(ctx, decodeURIComponent(partes.slice(1).join("/")));
     else if (partes[0] === "atletas") await viewAtletas(ctx, q);
     else if (partes[0] === "ao-vivo" && partes[1]) await viewEventoAoVivo(decodeURIComponent(partes.slice(1).join("/")), q);
     else if (partes[0] === "ao-vivo") await viewAoVivo();

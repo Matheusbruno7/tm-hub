@@ -57,7 +57,7 @@ export async function viewAtletas(ctx, q) {
       alvo.innerHTML = itens.length ? `<div class="tabela-wrap mt"><table><thead><tr><th>Atleta</th><th>Classe</th><th class="dir">Rating</th><th class="dir">Posição na classe</th></tr></thead><tbody>
         ${itens.map((a) => `<tr class="clic" data-id="${esc(a.id)}"><td><span class="clube-nome">${esc(a.nome)}</span><div class="clube-sub">${esc(a.clube)}</div></td><td>${esc(a.categoria)}</td><td class="dir num"><b>${fmt(a.rating)}</b></td><td class="dir num">${fmt(a.posicao)}º</td></tr>`).join("")}
         </tbody></table></div>` : '<p class="mut mt">Nenhum atleta encontrado. Confira a grafia (a CBTM usa nome e último sobrenome, ex.: "DAVI FUJII").</p>';
-      alvo.querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", () => ctx.irPara(`atletas/${encodeURIComponent(tr.dataset.id)}`)));
+      alvo.querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", () => ctx.irPara(`atleta/${encodeURIComponent(tr.dataset.id)}`)));
     } catch (e) { alvo.innerHTML = `<p class="mut mt">${esc(e.message)}. O índice de atletas pode estar sendo montado; tente em alguns minutos.</p>`; }
   };
   inp.addEventListener("input", () => { clearTimeout(t); t = setTimeout(buscar, 300); });
@@ -94,26 +94,17 @@ export async function viewAtletas(ctx, q) {
         </tbody></table></div>
         <div class="paginacao"><span>${fmt(r.total)} atletas · fonte: CBTM</span><span><button class="btn" data-pg="${pagina - 1}" ${pagina <= 1 ? "disabled" : ""}>← Anterior</button> <span class="num">${pagina}/${r.pages}</span> <button class="btn" data-pg="${pagina + 1}" ${pagina >= r.pages ? "disabled" : ""}>Próxima →</button></span></div>`
         : '<div class="card vazio">Nenhum atleta nesta classificação.</div>';
-      alvo.querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", () => ctx.irPara(`atletas/${encodeURIComponent(tr.dataset.id)}`)));
+      alvo.querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", () => ctx.irPara(`atleta/${encodeURIComponent(tr.dataset.id)}`)));
       alvo.querySelectorAll("[data-pg]").forEach((b) => b.addEventListener("click", () => { q.set("pagina", b.dataset.pg); ctx.atualizarQuery("atletas", q); desenharLista(); }));
     } catch (e) { alvo.innerHTML = `<div class="card vazio">${esc(e.message)}</div>`; }
   }
   desenharLista();
 }
 
-// ---------------------------------------------------------------- perfil
-export async function viewAtleta(ctx, id) {
-  ctx.marcarMenu("atletas");
-  ctx.main.innerHTML = '<div class="carregando">Carregando atleta e histórico na CBTM…</div>';
-  let d, modelo, cal, vivo = null;
-  try {
-    [d, modelo, cal] = await Promise.all([get(API, `atleta/${encodeURIComponent(id)}?v=4`), ctx.carregarModelo(), get(API, "calendario?v=4").catch(() => ({ eventos: [] }))]);
-  } catch (e) {
-    ctx.main.innerHTML = `<a class="voltar" href="#/atletas">← Atletas</a><div class="card vazio">Não foi possível carregar o atleta: ${esc(e.message)}</div>`;
-    return;
-  }
+// ---------------------------------------------------------------- aba "Previsão e metas" do perfil
+// dados: { id, d (perfil do worker de ranking), modelo, vivo (worker ao vivo), cal (calendário) }
+export function renderPrevisao(ctx, alvo, { id, d, modelo, vivo, cal }) {
   const a = d.atleta;
-  try { vivo = await get(AO_VIVO, `atleta/${encodeURIComponent(`${normalizar(a.nome)}|${normalizar(a.clube)}`)}`); } catch (e) { vivo = null; }
   const sexo = a.sexo || d.pessoa?.Sexo || "M";
   const oficial = a.rating;
   const saldo = vivo?.saldo || 0;
@@ -152,28 +143,12 @@ export async function viewAtleta(ctx, id) {
   const evolucao = (d.eventos || []).filter((e) => e.RatingFinal != null).map((e) => ({ x: String(e.DataFim || e.DataInicio).slice(0, 10), y: e.RatingFinal, rotulo: `${dataBR(e.DataFim || e.DataInicio)} · ${e.EventoNome}<br><b>${fmt(e.RatingFinal)}</b> (${sinal(e.Pontos)})` }))
     .sort((x, y) => x.x.localeCompare(y.x)).filter((p) => (Date.parse(hoje) - Date.parse(p.x)) / 864e5 <= 365);
 
-  ctx.main.innerHTML = `
-    <a class="voltar" href="#/atletas">← Atletas</a>
-    <div class="card det-topo">
-      <div><h1>${esc(d.pessoa?.Nome || a.nome)}</h1>
-        <p class="mut">${esc(a.clube)}${d.pessoa?.Idade ? ` · ${d.pessoa.Idade} anos` : ""} · ${sexo === "F" ? "Feminino" : "Masculino"}</p>
-        <p><b>${esc(a.categoria)}</b> · ${fmt(a.posicao)}º na classe</p>
-        <div class="lista-chips">${(d.rankings || []).map((r) => `<span class="tag">${esc(NOMES_TIPO[r.tipo])} · ${esc(r.categoria)}: <b>${r.posicao}º</b> (${fmt(r.pontos)} pts)</span>`).join("")}</div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:10px;align-items:stretch">${botaoCompartilhar("btn-previsao")}<a class="btn" href="#/pontos/${encodeURIComponent(id)}">Ver jogos e pontos</a></div>
-      <div class="selo"><div class="r">Rating ${saldo ? "ao vivo" : "oficial"}</div><div class="v">${fmt(inicial)}</div><div class="r">${saldo ? `oficial ${fmt(oficial)} · ${sinal(saldo)} a publicar` : `classe ${classeAtual}`}</div></div>
-    </div>
-    <div class="grade g4 mt">
-      <div class="card kpi"><div class="v">${fmt(ultimos12.length)}</div><div class="r">jogos nos últimos 12 meses</div></div>
-      <div class="card kpi"><div class="v">${ultimos12.length ? pct(vit12 / ultimos12.length) : "–"}</div><div class="r">de vitórias (${fmt(vit12)} V · ${fmt(ultimos12.length - vit12)} D)</div></div>
-      <div class="card kpi" data-dica="Comparação entre as vitórias do atleta e o que o rating previa contra os mesmos adversários, com mais peso nos jogos recentes."><div class="v">${forma > 0.08 ? "Acima" : forma < -0.08 ? "Abaixo" : "No esperado"}</div><div class="r">forma recente${nForma < 15 ? " (poucos jogos)" : ""}</div></div>
-      <div class="card kpi" data-dica="Chance média de vitória nos jogos típicos do seu calendário, pela regressão logística com a sua forma."><div class="v">${pct(aprov)}</div><div class="r">chance média de vitória por jogo</div></div>
-    </div>
+  alvo.innerHTML = `
+    <div class="cab"><div><h2 style="margin:0">Previsão até o fim do ano</h2><p class="mut">Forma recente: <b>${forma > 0.08 ? "acima do esperado" : forma < -0.08 ? "abaixo do esperado" : "no esperado"}</b>${nForma < 15 ? " (poucos jogos)" : ""} · chance média de vitória por jogo: <b>${pct(aprov)}</b></p></div>${botaoCompartilhar("btn-previsao")}</div>
     <div class="card mt"><h3>Rating nos últimos 12 meses e projeção até 31/12</h3><div id="graf-evolucao"></div>
       <div class="legenda"><span><i style="background:var(--s1)"></i>Rating oficial após cada evento</span><span><i style="background:var(--s1);opacity:.35"></i>Projeção (faixa de 80% dos cenários)</span></div></div>
 
-    <h2 style="margin-top:26px">Previsão até o fim do ano</h2>
-    <div class="aviso">${aviso()}</div>
+    <div class="aviso mt">${aviso()}</div>
     <div class="grade g2">
       <div class="card"><h3>Eventos no seu plano</h3><p class="mut" style="font-size:13px">Marcamos os eventos do seu estado${uf ? ` (${uf})` : ""} e os nacionais com inscrição aberta. Marque ou desmarque os que você vai jogar.</p>
         <div id="plano"></div>
