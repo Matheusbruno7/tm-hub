@@ -62,7 +62,7 @@ button, input, select { font: inherit; color: inherit; }
 /* ---------- topo ---------- */
 .topo { position: sticky; top: 0; z-index: 20; background: var(--topo); color: var(--topo-tx); }
 .topo-in { max-width: 1180px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 18px; }
-.marca { display: flex; align-items: center; gap: 9px; color: var(--topo-tx); font-size: 18px; letter-spacing: -.2px; }
+.marca { display: flex; align-items: center; gap: 9px; color: var(--topo-tx); font-size: 18px; letter-spacing: .8px; }
 .marca:hover { text-decoration: none; }
 .menu { display: flex; gap: 2px; overflow-x: auto; flex: 1; scrollbar-width: none; }
 .menu a { color: #b9c7da; padding: 7px 12px; border-radius: 99px; white-space: nowrap; font-weight: 600; font-size: 14px; }

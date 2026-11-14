@@ -1,6 +1,6 @@
-# tm-hub
+# CASQUINHA (tm-hub)
 
-Site que reúne os módulos do projeto de tênis de mesa:
+**CASQUINHA** é o site que reúne os módulos do projeto de tênis de mesa:
 
 | Módulo | Repositório | Status no site |
 |---|---|---|
