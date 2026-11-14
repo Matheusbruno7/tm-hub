@@ -49,14 +49,33 @@ function forcaDe(indices) {
  * rating dos jogos que a CBTM ainda não publicou). Devolve Map id -> {forca,
  * forca_masculino, forca_feminino} e uma função de posição por campo.
  */
-export function projetarClubes(ranking, atletasDb, saldos) {
+/**
+ * Saldo ao vivo de um atleta do clube. Procura por NOME|CLUBE atual; se o
+ * atleta jogou por outro clube (transferência), usa o saldo pelo nome,
+ * desde que o nome seja de uma pessoa só entre os atletas ativos.
+ */
+export function criarBuscaDeSaldo(atletasDb, s) {
+  const contagem = new Map();
+  for (const lista of Object.values(atletasDb.clubes || {}))
+    for (const a of lista) { const n = normalizar(a.nome); contagem.set(n, (contagem.get(n) || 0) + 1); }
+  const saldos = s.saldos || s, porNome = s.por_nome || {};
+  return (nome, clube) => {
+    const k = chaveAtleta(nome, clube);
+    if (saldos[k] != null) return saldos[k];
+    const n = normalizar(nome);
+    return contagem.get(n) === 1 ? porNome[n] || 0 : 0;
+  };
+}
+
+export function projetarClubes(ranking, atletasDb, saldosResp) {
+  const saldoDe = criarBuscaDeSaldo(atletasDb, saldosResp);
   const clubes = ranking.clubes;
   const novos = new Map();
   const todos = { M: [], F: [] };
   let afetados = 0;
   for (const c of clubes) {
     const lista = (atletasDb.clubes[c.id] || []).map((a) => {
-      const s = saldos[chaveAtleta(a.nome, c.nome_cbtm)] || 0;
+      const s = saldoDe(a.nome, c.nome_cbtm);
       if (s) afetados++;
       return { sexo: a.sexo, rating: a.rating + s };
     });
@@ -65,7 +84,7 @@ export function projetarClubes(ranking, atletasDb, saldos) {
   }
   // a referência do índice também considera os atletas vinculados a federações
   for (const f of ranking.federacoes?.itens || []) {
-    for (const a of atletasDb.clubes[f.id] || []) todos[a.sexo]?.push(a.rating + (saldos[chaveAtleta(a.nome, f.nome_cbtm)] || 0));
+    for (const a of atletasDb.clubes[f.id] || []) todos[a.sexo]?.push(a.rating + saldoDe(a.nome, f.nome_cbtm));
   }
   const ref = {};
   for (const sx of ["M", "F"]) {

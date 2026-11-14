@@ -161,7 +161,7 @@ export async function viewPontosAtleta(ctx, id) {
     </div>
     ${evolucao.length > 1 ? `<div class="card mt"><h3>Rating ao longo do tempo</h3>${linhaTempo(evolucao)}</div>` : ""}
     <h2 class="titulo-secao">Jogos ainda não publicados pela CBTM</h2>
-    ${pendentes.length ? tabelaJogos(pendentes.map((j) => ({ data: j.dia, hora: j.hora, evento: j.evento, categoria: `${j.categoria} · ${j.fase}`, adversario: j.adversario, ratingAdv: j.rating_adversario, antes: j.antes, placar: j.placar, venceu: j.venceu, pontos: j.pontos, p: j.p, exato: true })))
+    ${pendentes.length ? tabelaJogos(pendentes.map((j) => ({ data: j.dia, hora: j.hora, evento: normalizar(j.clube) !== normalizar(clube) && j.clube ? `${j.evento} · jogou por ${j.clube}` : j.evento, categoria: `${j.categoria} · ${j.fase}`, adversario: j.adversario, ratingAdv: j.rating_adversario, antes: j.antes, placar: j.placar, venceu: j.venceu, pontos: j.pontos, p: j.p, exato: true })))
       : '<div class="card vazio">Nenhum jogo pendente: tudo o que você jogou já está no rating oficial.</div>'}
     <h2 class="titulo-secao">Histórico oficial (últimos 12 meses)</h2>
     ${oficiais.length ? tabelaJogos(oficiais.map((j) => ({ data: j.data, hora: j.hora, evento: j.evento, categoria: "", adversario: j.adversario, ratingAdv: j.antes - j.dif, antes: j.antes, placar: placarDeSets(j.sets), venceu: j.venceu, pontos: j.pontos, p: j.p, exato: false })))

@@ -1,4 +1,4 @@
-import { normalizar as normalizarTexto, buscarAtletasAoVivo, carregarAtletaAoVivo, carregarAtletas, carregarEventoAoVivo, carregarModelo, carregarRanking, carregarResumoAoVivo, carregarSaldos, FORMATOS, projetarClubes, REGIOES, regiaoDe, SEM_ESTADO, simular } from "./dados.js";
+import { criarBuscaDeSaldo, normalizar as normalizarTexto, buscarAtletasAoVivo, carregarAtletaAoVivo, carregarAtletas, carregarEventoAoVivo, carregarModelo, carregarRanking, carregarResumoAoVivo, carregarSaldos, FORMATOS, projetarClubes, REGIOES, regiaoDe, SEM_ESTADO, simular } from "./dados.js";
 import { viewAtleta as viewAtletaRanking, viewAtletas } from "./atletas.js";
 import { abrirCartao, botaoCompartilhar } from "./cartao.js";
 import { viewPontos, viewPontosAtleta } from "./pontos.js";
@@ -16,7 +16,7 @@ let PROJ = null; // projeção com os pontos ao vivo: { proj, posicoes, afetados
 async function obterProjecao() {
   if (PROJ && Date.now() - PROJ.em < 60e3) return PROJ;
   const [s, a] = await Promise.all([carregarSaldos(), carregarAtletas()]);
-  PROJ = { ...projetarClubes(R, a, s.saldos || {}), em: Date.now(), oficialAte: s.oficial_ate };
+  PROJ = { ...projetarClubes(R, a, s), em: Date.now(), oficialAte: s.oficial_ate };
   return PROJ;
 }
 
@@ -229,7 +229,8 @@ async function viewClube(id) {
   const c = porId.get(id);
   if (!c) { main.innerHTML = `<div class="card vazio">Clube não encontrado. <a href="#/clubes">Voltar ao ranking</a></div>`; return; }
   const ehFed = R.federacoes.itens.includes(c);
-  const atletas = ((await carregarAtletas()).clubes[id]) || [];
+  const todosAtletas = await carregarAtletas();
+  const atletas = todosAtletas.clubes[id] || [];
   const comp = (rot, v, dica) => `<div class="comp-l" data-dica="${esc(dica)}"><span>${rot}</span><span class="barra"><i style="width:${v}%"></i></span><b>${fmt(v, 1)}</b></div>`;
   const classes = (obj) => Object.entries(obj).map(([k, v]) => ({ rotulo: k, valor: v }));
   const faixas = ["Base (Sub)", "Absoluto", "Adulto", "Master"].map((f) => ({ rotulo: f, valor: c.faixas_etarias?.[f] || 0 }));
@@ -298,7 +299,8 @@ async function viewClube(id) {
     Promise.all([carregarSaldos(), obterProjecao()]).then(([s, proj]) => {
       const alvo = main.querySelector("#semana");
       if (!alvo) return;
-      const comSaldo = atletas.map((a) => ({ ...a, saldo: s.saldos[`${normalizarTexto(a.nome)}|${normalizarTexto(c.nome_cbtm)}`] || 0 })).filter((a) => a.saldo).sort((x, y) => y.saldo - x.saldo);
+      const saldoDe = criarBuscaDeSaldo(todosAtletas, s);
+      const comSaldo = atletas.map((a) => ({ ...a, saldo: saldoDe(a.nome, c.nome_cbtm) })).filter((a) => a.saldo).sort((x, y) => y.saldo - x.saldo);
       const total = comSaldo.reduce((t, a) => t + a.saldo, 0);
       const pos = proj.posicoes("forca", (x) => x.atletas_ativos > 0).get(c.id);
       const dif = c.posicao_brasil - pos;
