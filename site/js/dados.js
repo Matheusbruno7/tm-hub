@@ -16,6 +16,79 @@ export const carregarRanking = () => json("ranking_clubes.json");
 export const carregarAtletas = () => json("atletas_por_clube.json");
 export const carregarModelo = () => json("modelo_vitoria.json");
 
+// ---- pontos ao vivo (worker tm-pontos-ao-vivo na Cloudflare) ----
+export const AO_VIVO = "https://casquinha-ao-vivo.matheusbruno045.workers.dev/api/";
+async function aoVivo(caminho) {
+  const r = await fetch(AO_VIVO + caminho);
+  if (!r.ok) throw new Error(r.status === 404 ? "não encontrado" : `serviço ao vivo indisponível (${r.status})`);
+  return r.json();
+}
+export const carregarResumoAoVivo = () => aoVivo("resumo");
+export const carregarSaldos = () => aoVivo("saldos");
+export const carregarEventoAoVivo = (slug) => aoVivo(`evento/${encodeURIComponent(slug)}`);
+export const buscarAtletasAoVivo = (q) => aoVivo(`atletas?q=${encodeURIComponent(q)}`);
+export const carregarAtletaAoVivo = (chave) => aoVivo(`atleta/${encodeURIComponent(chave)}`);
+
+// mesma normalização do worker (src/calculo.js)
+export const normalizar = (s) =>
+  String(s ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
+export const chaveAtleta = (nome, clube) => `${normalizar(nome)}|${normalizar(clube)}`;
+
+// ---- Força do Clube (espelha tm-clubes/src/tmclubes/forca.py) ----
+const PESOS_FORCA = { elite: 0.5, profundidade: 0.3, volume: 0.2 };
+function forcaDe(indices) {
+  const o = [...indices].sort((a, b) => b - a);
+  const elite = o.slice(0, 5).reduce((s, x) => s + x, 0) / 5;
+  const prof = o.slice(5, 15).reduce((s, x) => s + x, 0) / 10;
+  const vol = Math.min(1, Math.log1p(o.length) / Math.log1p(50)) * 100;
+  return 10 * (PESOS_FORCA.elite * elite + PESOS_FORCA.profundidade * prof + PESOS_FORCA.volume * vol);
+}
+
+/**
+ * Projeta a Força e a posição de cada clube com os pontos ao vivo (saldo de
+ * rating dos jogos que a CBTM ainda não publicou). Devolve Map id -> {forca,
+ * forca_masculino, forca_feminino} e uma função de posição por campo.
+ */
+export function projetarClubes(ranking, atletasDb, saldos) {
+  const clubes = ranking.clubes;
+  const novos = new Map();
+  const todos = { M: [], F: [] };
+  let afetados = 0;
+  for (const c of clubes) {
+    const lista = (atletasDb.clubes[c.id] || []).map((a) => {
+      const s = saldos[chaveAtleta(a.nome, c.nome_cbtm)] || 0;
+      if (s) afetados++;
+      return { sexo: a.sexo, rating: a.rating + s };
+    });
+    novos.set(c.id, lista);
+    for (const a of lista) todos[a.sexo]?.push(a.rating);
+  }
+  // a referência do índice também considera os atletas vinculados a federações
+  for (const f of ranking.federacoes?.itens || []) {
+    for (const a of atletasDb.clubes[f.id] || []) todos[a.sexo]?.push(a.rating + (saldos[chaveAtleta(a.nome, f.nome_cbtm)] || 0));
+  }
+  const ref = {};
+  for (const sx of ["M", "F"]) {
+    const top = todos[sx].sort((a, b) => b - a).slice(0, 10);
+    ref[sx] = top.reduce((s, x) => s + x, 0) / Math.max(1, top.length);
+  }
+  const idx = (a) => Math.min(100, (100 * a.rating) / ref[a.sexo]);
+  const proj = new Map();
+  for (const c of clubes) {
+    const l = novos.get(c.id);
+    proj.set(c.id, {
+      forca: forcaDe(l.map(idx)),
+      forca_masculino: l.some((a) => a.sexo === "M") ? forcaDe(l.filter((a) => a.sexo === "M").map(idx)) : 0,
+      forca_feminino: l.some((a) => a.sexo === "F") ? forcaDe(l.filter((a) => a.sexo === "F").map(idx)) : 0,
+    });
+  }
+  const posicoes = (campo, filtro = () => true) => {
+    const ord = clubes.filter(filtro).sort((a, b) => proj.get(b.id)[campo] - proj.get(a.id)[campo] || b.atletas_ativos - a.atletas_ativos);
+    return new Map(ord.map((c, i) => [c.id, i + 1]));
+  };
+  return { proj, posicoes, afetados };
+}
+
 export const REGIOES = {
   Norte: ["AC", "AM", "AP", "PA", "RO", "RR", "TO"],
   Nordeste: ["AL", "BA", "CE", "MA", "PB", "PE", "PI", "RN", "SE"],

@@ -1,4 +1,4 @@
-import { carregarAtletas, carregarModelo, carregarRanking, FORMATOS, REGIOES, regiaoDe, SEM_ESTADO, simular } from "./dados.js";
+import { buscarAtletasAoVivo, carregarAtletaAoVivo, carregarAtletas, carregarEventoAoVivo, carregarModelo, carregarRanking, carregarResumoAoVivo, carregarSaldos, FORMATOS, projetarClubes, REGIOES, regiaoDe, SEM_ESTADO, simular } from "./dados.js";
 import { ativarDicas, barrasAgrupadas, barrasVerticais, esc, fmt, legenda, pct } from "./graficos.js";
 
 const main = document.getElementById("conteudo");
@@ -8,6 +8,14 @@ const ICONE_INFO = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden=
 
 let R; // ranking_clubes.json
 const porId = new Map();
+let PROJ = null; // projeção com os pontos ao vivo: { proj, posicoes, afetados, em }
+
+async function obterProjecao() {
+  if (PROJ && Date.now() - PROJ.em < 60e3) return PROJ;
+  const [s, a] = await Promise.all([carregarSaldos(), carregarAtletas()]);
+  PROJ = { ...projetarClubes(R, a, s.saldos || {}), em: Date.now(), oficialAte: s.oficial_ate };
+  return PROJ;
+}
 
 // ---------------- utilidades ----------------
 function rota() {
@@ -51,7 +59,8 @@ function viewInicio() {
       <div class="card"><h3>Top 5 · Força do Clube</h3>
         ${top.map((c, i) => `<div class="comp-l" style="grid-template-columns:24px minmax(0,1fr) 56px"><span class="mut num">${i + 1}</span><a href="#/clubes/${c.id}" class="clube-nome">${esc(c.nome)} <span class="tag">${esc(ufRotulo(c.uf))}</span></a><b>${fmt(c.forca, 1)}</b></div>`).join("")}
       </div>
-      <div class="card breve"><h3>Em breve</h3><p><b>Pontos ao vivo</b>: quanto cada jogo vale logo após a partida.</p><p><b>Ranking e rating dos atletas</b>: previsões até o fim do ano, metas e torneios a priorizar.</p></div>
+      <div class="card"><h3><span class="ao-vivo-pulso" aria-hidden="true"></span>Ao vivo</h3><p>Os pontos de rating de cada jogo assim que o resultado cai na CBTM.</p><a class="btn prim" href="#/ao-vivo">Ver jogos e buscar atleta →</a>
+        <p class="mut mt" style="font-size:13px"><b>Em breve:</b> ranking e rating dos atletas, com previsões até o fim do ano, metas e torneios a priorizar.</p></div>
     </div>`;
 }
 
@@ -138,9 +147,11 @@ function viewClubes(q) {
     const th = (k, rot, cls = "") => `<th class="${cls}" aria-sort="${ordem === k ? dir : "none"}"><button data-ordem="${k}">${rot}</button></th>`;
     const filtrado = q.get("uf") || q.get("regiao") || q.get("q");
     const sexoN = sexo === "M" ? "masculino" : sexo === "F" ? "feminino" : "";
+    const contaSexo = (c) => (sexo === "M" ? c.atletas_masculino : sexo === "F" ? c.atletas_feminino : c.atletas_ativos) > 0;
+    const posProj = PROJ ? PROJ.posicoes(campo, contaSexo) : null;
     main.querySelector("#tabela").innerHTML = lista.length ? `
       <div class="tabela-wrap"><table class="tab-clubes">
-        <thead><tr><th>#</th>${th("nome", "Clube")}<th>UF</th>${th("forca", `Força do Clube${sexoN ? ` (${sexoN})` : ""}`)}${th("elite", "Elite", "dir")}${th("prof", "Profund.", "dir")}${th("atletas", "Atletas ativos", "dir")}${th("top10", "Top 10 nac.", "dir")}</tr></thead>
+        <thead><tr><th>#</th>${th("nome", "Clube")}<th>UF</th>${th("forca", `Força do Clube${sexoN ? ` (${sexoN})` : ""}`)}${th("elite", "Elite", "dir")}${th("prof", "Profund.", "dir")}${th("atletas", "Atletas ativos", "dir")}${th("top10", "Top 10 nac.", "dir")}<th class="dir th-quebra" data-dica="Posição que o clube deve ter na próxima atualização oficial (segunda-feira), somando os pontos dos jogos já lançados na CBTM e ainda não publicados no rating oficial.">Provável posição amanhã</th></tr></thead>
         <tbody>${pg.map((c) => `
           <tr class="clic" data-id="${c.id}">
             <td class="pos">${c._posBr}</td>
@@ -151,6 +162,7 @@ function viewClubes(q) {
             <td class="dir num">${fmt(c.profundidade, 1)}</td>
             <td class="dir num">${fmt(c.atletas_ativos)}</td>
             <td class="dir num">${fmt(c.top10_nacional)}</td>
+            <td class="dir num">${celulaProjecao(c, posProj)}</td>
           </tr>`).join("")}</tbody></table></div>
       <div class="paginacao"><span>${fmt(lista.length)} clubes${filtrado ? " no filtro" : ""} · a coluna # é a posição no Brasil</span>
         <span><button class="btn" data-pg="${pagina - 1}" ${pagina <= 1 ? "disabled" : ""}>← Anterior</button> <span class="num">${pagina}/${paginas}</span> <button class="btn" data-pg="${pagina + 1}" ${pagina >= paginas ? "disabled" : ""}>Próxima →</button></span></div>`
@@ -175,6 +187,19 @@ function viewClubes(q) {
     mudar("sexo", b.dataset.sexo);
   }));
   desenhar();
+  obterProjecao().then(() => { if (location.hash.startsWith("#/clubes") && !rota().partes[1]) desenhar(); })
+    .catch(() => { PROJ = null; main.querySelectorAll(".tab-clubes tbody td:last-child").forEach((td) => (td.textContent = "–")); });
+}
+
+function celulaProjecao(c, posProj) {
+  if (!posProj) return '<span class="mut" data-dica="Carregando os pontos ao vivo…">…</span>';
+  const p = posProj.get(c.id);
+  if (!p) return "–";
+  const d = c._posBr - p;
+  const seta = d > 0 ? `<span class="sobe" data-dica="Deve subir ${d} posição(ões)">▲ ${d}</span>`
+    : d < 0 ? `<span class="desce" data-dica="Deve cair ${-d} posição(ões)">▼ ${-d}</span>`
+    : '<span class="mut" data-dica="Deve manter a posição">=</span>';
+  return `<b>${p}º</b> ${seta}`;
 }
 
 // ---------------- detalhe do clube ----------------
@@ -452,11 +477,139 @@ async function viewMetodologia() {
     </div>`;
 }
 
+// ---------------- ao vivo ----------------
+let recarga = null; // atualização automática das telas ao vivo
+function recarregarEm(seg, fn) {
+  clearInterval(recarga);
+  recarga = setInterval(() => { if (!document.hidden) fn(); }, seg * 1000);
+}
+const dataBR = (iso) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "");
+const pontos = (n) => `<span class="pts ${n > 0 ? "pos" : n < 0 ? "neg" : ""}">${n > 0 ? "+" : ""}${fmt(n)}</span>`;
+const quando = (ms) => {
+  if (!ms) return "–";
+  const s = Math.round((Date.now() - ms) / 1000);
+  return s < 90 ? "há instantes" : s < 3600 ? `há ${Math.round(s / 60)} min` : new Date(ms).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+};
+const avisoAoVivo = (oficialAte) => `<div class="aviso">${ICONE_INFO}<div><b>Pontos calculados pela CASQUINHA logo que o resultado é lançado na CBTM</b>, com a regra oficial do rating (rating de cada atleta antes do jogo, tabela de vitória esperada ou inesperada e peso do evento). O rating oficial publicado pela CBTM inclui os jogos até <b>${dataBR(oficialAte)}</b>; os jogos depois disso aparecem aqui. Em caso de diferença, vale o oficial.</div></div>`;
+
+async function viewAoVivo() {
+  marcarMenu("ao-vivo");
+  main.innerHTML = `<div class="carregando">Carregando eventos ao vivo…</div>`;
+  const desenhar = async () => {
+    const r = await carregarResumoAoVivo();
+    const vivos = r.eventos.filter((e) => e.ao_vivo);
+    const outros = r.eventos.filter((e) => !e.ao_vivo);
+    const linhaEv = (e) => `<tr class="clic" data-slug="${esc(e.slug)}">
+      <td>${e.ao_vivo ? '<span class="ao-vivo-pulso" aria-hidden="true"></span>' : ""}<span class="clube-nome">${esc(e.nome)}</span><div class="clube-sub">${esc(e.cidade)}</div></td>
+      <td>${dataBR(e.inicio)}${e.fim !== e.inicio ? ` a ${dataBR(e.fim)}` : ""}</td>
+      <td>${esc(e.tipo)} <span class="tag" data-dica="${e.peso_estimado ? "Peso estimado: o tipo do evento não foi identificado pelo nome." : "Peso do evento no rating (Manual CBTM 2026)"}">peso ${e.peso}${e.peso_estimado ? "?" : ""}</span></td>
+      <td class="dir num">${fmt(e.jogos)}</td></tr>`;
+    const tabela = (lista) => `<div class="tabela-wrap"><table><thead><tr><th>Evento</th><th>Data</th><th>Tipo</th><th class="dir">Jogos calculados</th></tr></thead><tbody>${lista.map(linhaEv).join("")}</tbody></table></div>`;
+    const busca = main.querySelector("#busca-atleta")?.value || "";
+    main.innerHTML = `
+      <div class="cab"><div><h1>Ao vivo</h1><p>Pontos de rating de cada jogo assim que o resultado cai no sistema da CBTM. Atualiza sozinho a cada minuto.</p></div>
+        <p class="mut" style="font-size:13px">Última leitura da CBTM: ${quando(r.rodada_em)}</p></div>
+      ${avisoAoVivo(r.oficial_ate)}
+      <div class="card"><h3>Buscar atleta</h3>
+        <div class="filtros" style="margin:0"><input type="search" id="busca-atleta" placeholder="Nome do atleta (ex.: Davi Fujii)" value="${esc(busca)}" aria-label="Nome do atleta"></div>
+        <div id="res-atletas"></div></div>
+      <div class="grade g3 mt">
+        <div class="card kpi"><div class="v">${fmt(vivos.length)}</div><div class="r">eventos acontecendo agora</div></div>
+        <div class="card kpi"><div class="v">${fmt(r.jogos)}</div><div class="r">jogos calculados e ainda não publicados no oficial</div></div>
+        <div class="card kpi"><div class="v">${fmt(r.atletas_com_jogos)}</div><div class="r">atletas com pontos a publicar</div></div>
+      </div>
+      ${vivos.length ? `<h2 class="mt" style="margin-top:22px"><span class="ao-vivo-pulso" aria-hidden="true"></span>Acontecendo agora</h2>${tabela(vivos)}` : ""}
+      <h2 class="mt" style="margin-top:22px">Eventos com pontos a publicar</h2>
+      ${outros.length ? tabela(outros) : '<div class="card vazio">Nenhum outro evento pendente.</div>'}`;
+    main.querySelectorAll("tr[data-slug]").forEach((tr) => tr.addEventListener("click", () => irPara(`ao-vivo/${encodeURIComponent(tr.dataset.slug)}`)));
+    const inp = main.querySelector("#busca-atleta");
+    let t;
+    const buscar = async () => {
+      const termo = inp.value.trim();
+      const alvo = main.querySelector("#res-atletas");
+      if (termo.length < 3) { alvo.innerHTML = ""; return; }
+      const { itens } = await buscarAtletasAoVivo(termo);
+      alvo.innerHTML = itens.length ? `<div class="tabela-wrap mt"><table><thead><tr><th>Atleta</th><th class="dir">Oficial</th><th class="dir">Ao vivo</th><th class="dir">Saldo</th><th class="dir">Jogos</th></tr></thead><tbody>
+        ${itens.map((a) => `<tr class="clic" data-chave="${esc(a.chave)}"><td><span class="clube-nome">${esc(a.nome)}</span><div class="clube-sub">${esc(a.clube)}</div></td><td class="dir num">${fmt(a.oficial)}</td><td class="dir num"><b>${fmt(a.atual)}</b></td><td class="dir">${pontos(a.saldo)}</td><td class="dir num">${fmt(a.jogos)}</td></tr>`).join("")}
+        </tbody></table></div>` : '<p class="mut mt">Nenhum atleta com jogos ainda não publicados no rating oficial.</p>';
+      alvo.querySelectorAll("tr[data-chave]").forEach((tr) => tr.addEventListener("click", () => irPara(`atleta/${encodeURIComponent(tr.dataset.chave)}`)));
+    };
+    inp.addEventListener("input", () => { clearTimeout(t); t = setTimeout(buscar, 250); });
+    if (busca) buscar();
+  };
+  await desenhar();
+  recarregarEm(60, () => { if (!main.querySelector("#busca-atleta:focus")) desenhar(); });
+}
+
+async function viewEventoAoVivo(slug, q) {
+  marcarMenu("ao-vivo");
+  main.innerHTML = `<div class="carregando">Carregando jogos…</div>`;
+  const desenhar = async () => {
+    const { evento: e, jogos } = await carregarEventoAoVivo(slug);
+    const cats = [...new Set(jogos.map((j) => j.categoria))].sort();
+    const cat = q.get("cat") || "";
+    const busca = normalizarBusca(q.get("q") || "");
+    const lista = jogos.filter((j) => (!cat || j.categoria === cat) && (!busca || `${j.a.nome} ${j.b.nome}`.includes(busca))).reverse();
+    const lado = (l, cls) => `<div class="${cls}"><a href="#/atleta/${encodeURIComponent(l.chave)}" class="${l.venceu ? "venceu" : ""}">${esc(l.nome)}</a>
+      <div class="linha-meta">${esc(l.clube)} · ${fmt(l.antes)} ${pontos(l.pontos)}</div></div>`;
+    main.innerHTML = `
+      <a class="voltar" href="#/ao-vivo">← Ao vivo</a>
+      <div class="cab"><div><h1>${e.ao_vivo ? '<span class="ao-vivo-pulso" aria-hidden="true"></span>' : ""}${esc(e.nome)}</h1>
+        <p>${esc(e.cidade)} · ${dataBR(e.inicio)}${e.fim !== e.inicio ? ` a ${dataBR(e.fim)}` : ""} · ${esc(e.tipo)}, peso ${e.peso}${e.peso_estimado ? " (estimado)" : ""} · ${fmt(jogos.length)} jogos calculados</p></div></div>
+      <div class="filtros">
+        <input type="search" id="f-q" placeholder="Buscar atleta neste evento" value="${esc(q.get("q") || "")}" aria-label="Buscar atleta">
+        <select id="f-cat" aria-label="Categoria"><option value="">Todas as categorias</option>${cats.map((c) => `<option ${c === cat ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
+      </div>
+      <div class="card">${lista.length ? lista.map((j) => `<div class="jogo-vivo">
+        ${lado(j.a, "lado-a")}
+        <div class="meio"><b>${j.a.placar} × ${j.b.placar}</b><small>${esc(j.categoria)}</small><small>${esc(j.fase)}${j.grupo ? ` ${esc(j.grupo)}` : ""} · ${esc(j.hora)}</small></div>
+        ${lado(j.b, "lado-b")}</div>`).join("") : '<div class="vazio">Nenhum jogo finalizado com esses filtros.</div>'}</div>`;
+    let t;
+    main.querySelector("#f-q").addEventListener("input", (ev) => { clearTimeout(t); t = setTimeout(() => { ev.target.value ? q.set("q", ev.target.value) : q.delete("q"); atualizarQuery(`ao-vivo/${encodeURIComponent(slug)}`, q); desenhar(); }, 250); });
+    main.querySelector("#f-cat").addEventListener("change", (ev) => { ev.target.value ? q.set("cat", ev.target.value) : q.delete("cat"); atualizarQuery(`ao-vivo/${encodeURIComponent(slug)}`, q); desenhar(); });
+  };
+  await desenhar();
+  recarregarEm(60, () => { if (!main.querySelector("#f-q:focus")) desenhar(); });
+}
+const normalizarBusca = (s) => String(s).normalize("NFKD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
+
+async function viewAtleta(chave) {
+  marcarMenu("ao-vivo");
+  main.innerHTML = `<div class="carregando">Carregando atleta…</div>`;
+  const desenhar = async () => {
+    let a;
+    try { a = await carregarAtletaAoVivo(chave); } catch (e) {
+      main.innerHTML = `<a class="voltar" href="#/ao-vivo">← Ao vivo</a><div class="card vazio">Este atleta não tem jogos ainda não publicados no rating oficial.</div>`; return;
+    }
+    const r = await carregarResumoAoVivo().catch(() => ({}));
+    const jogos = [...a.jogos].reverse();
+    main.innerHTML = `
+      <a class="voltar" href="#/ao-vivo">← Ao vivo</a>
+      <div class="card det-topo">
+        <div><h1>${esc(a.nome)}</h1><p class="mut">${esc(a.clube)}</p>
+          <p>${fmt(a.jogos.length)} jogos · ${fmt(a.vitorias)} vitórias · ${fmt(a.jogos.length - a.vitorias)} derrotas, em ${fmt(a.eventos.length)} evento(s) ainda não publicado(s) no oficial</p></div>
+        <div class="selo"><div class="r">Rating ao vivo</div><div class="v">${fmt(a.atual)}</div><div class="r">oficial ${fmt(a.oficial)} · saldo ${a.saldo > 0 ? "+" : ""}${fmt(a.saldo)}</div></div>
+      </div>
+      ${avisoAoVivo(r.oficial_ate)}
+      <div class="tabela-wrap"><table><thead><tr><th>Data</th><th>Evento / categoria</th><th>Adversário</th><th class="dir">Placar</th><th class="dir">Rating antes</th><th class="dir">Pontos</th></tr></thead><tbody>
+      ${jogos.map((j) => `<tr><td class="num">${dataBR(j.dia)} ${esc(j.hora)}</td><td><span class="clube-nome">${esc(j.categoria)}</span> · ${esc(j.fase)}<div class="clube-sub">${esc(j.evento)} · peso ${j.peso}</div></td>
+        <td>${esc(j.adversario)} <span class="mut num">(${fmt(j.rating_adversario)})</span><div class="clube-sub">${esc(j.clube_adversario)}</div></td>
+        <td class="dir num ${j.venceu ? "venceu" : ""}">${j.venceu ? "V" : "D"} ${esc(j.placar)}</td><td class="dir num">${fmt(j.antes)}</td><td class="dir">${pontos(j.pontos)}</td></tr>`).join("")}
+      </tbody></table></div>`;
+  };
+  await desenhar();
+  recarregarEm(60, desenhar);
+}
+
 // ---------------- roteador ----------------
 async function render() {
   const { partes, q } = rota();
+  clearInterval(recarga);
   try {
-    if (partes[0] === "clubes" && partes[1]) await viewClube(partes[1]);
+    if (partes[0] === "ao-vivo" && partes[1]) await viewEventoAoVivo(decodeURIComponent(partes.slice(1).join("/")), q);
+    else if (partes[0] === "ao-vivo") await viewAoVivo();
+    else if (partes[0] === "atleta" && partes[1]) await viewAtleta(decodeURIComponent(partes.slice(1).join("/")));
+    else if (partes[0] === "clubes" && partes[1]) await viewClube(partes[1]);
     else if (partes[0] === "clubes") viewClubes(q);
     else if (partes[0] === "comparar") viewComparar(q);
     else if (partes[0] === "simulador") await viewSimulador(q);

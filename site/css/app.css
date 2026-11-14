@@ -124,7 +124,7 @@ td.dir, th.dir { text-align: right; }
 .pos { font-weight: 750; color: var(--mut); width: 44px; font-variant-numeric: tabular-nums; }
 .clube-nome { font-weight: 650; }
 .clube-sub { font-size: 12px; color: var(--mut); }
-.forca-cel { display: flex; align-items: center; gap: 10px; min-width: 170px; }
+.forca-cel { display: flex; align-items: center; gap: 10px; min-width: 140px; }
 .forca-cel b { font-variant-numeric: tabular-nums; width: 44px; text-align: right; }
 .barra { flex: 1; height: 8px; background: var(--card-2); border-radius: 99px; overflow: hidden; border: 1px solid var(--ln); }
 .barra i { display: block; height: 100%; background: var(--s1); border-radius: 99px; }
@@ -199,7 +199,26 @@ td.dir, th.dir { text-align: right; }
   .tab-clubes th:nth-child(3), .tab-clubes td:nth-child(3),
   .tab-clubes th:nth-child(5), .tab-clubes td:nth-child(5),
   .tab-clubes th:nth-child(6), .tab-clubes td:nth-child(6),
+  .tab-clubes th:nth-child(7), .tab-clubes td:nth-child(7),
   .tab-clubes th:nth-child(8), .tab-clubes td:nth-child(8) { display: none; }
   .forca-cel { min-width: 120px; }
   td, th { padding: 9px 8px; }
 }
+
+.sobe { color: var(--bom); font-weight: 700; font-size: 12px; white-space: nowrap; }
+.desce { color: var(--critico, #d03b3b); font-weight: 700; font-size: 12px; white-space: nowrap; }
+.ao-vivo-pulso { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #e34948; margin-right: 6px; box-shadow: 0 0 0 0 rgba(227,73,72,.6); animation: pulso 1.6s infinite; vertical-align: middle; }
+@keyframes pulso { 70% { box-shadow: 0 0 0 8px rgba(227,73,72,0); } 100% { box-shadow: 0 0 0 0 rgba(227,73,72,0); } }
+@media (prefers-reduced-motion: reduce) { .ao-vivo-pulso { animation: none; } }
+.pts { font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pts.pos { color: var(--bom); }
+.pts.neg { color: #d03b3b; }
+.jogo-vivo { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--ln); font-size: 14px; }
+.jogo-vivo:last-child { border-bottom: 0; }
+.jogo-vivo .lado-b { text-align: right; }
+.jogo-vivo .meio { text-align: center; font-variant-numeric: tabular-nums; min-width: 70px; }
+.jogo-vivo .meio small { display: block; color: var(--mut); font-size: 11px; }
+.jogo-vivo .venceu { font-weight: 700; }
+.linha-meta { font-size: 12px; color: var(--mut); }
+
+th.th-quebra { white-space: normal; min-width: 96px; line-height: 1.25; }

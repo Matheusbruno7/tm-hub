@@ -6,7 +6,7 @@
 |---|---|---|
 | Ranking de Clubes, comparação e simulador | `tm-clubes` | **no ar** |
 | Ranking/rating de atletas, previsões, metas e torneios a priorizar | `tm-ranking` | em breve |
-| Pontos logo após as partidas | `tm-pontos-ao-vivo` | em breve |
+| Pontos logo após as partidas (seção **Ao vivo**) e coluna "Provável posição amanhã" | `tm-pontos-ao-vivo` | **no ar** |
 | Campeonatos informais | (futuro) | guardado em `docs/futuro/campeonatos.md`, sem link no site |
 
 ## Estrutura
