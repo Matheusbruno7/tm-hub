@@ -23,7 +23,7 @@ export function calcularEstatisticas(jogos) {
     jogos: jogos.length, vitorias: jogos.filter((j) => j.venceu).length,
     esperado: jogos.reduce((s, j) => s + (j.p ?? 0.5), 0),
     sets: { ganhos: 0, perdidos: 0, pontosFeitos: 0, pontosSofridos: 0 },
-    placares: {}, decisivo: { v: 0, d: 0 }, apertados: { v: 0, d: 0 }, deuce: { v: 0, d: 0 },
+    placares: {}, decisivo: { v: 0, d: 0, esp: 0 }, apertados: { v: 0, d: 0 }, deuce: { v: 0, d: 0 },
     primeiroSet: { ganhouEVenceu: 0, ganhou: 0, perdeuEVenceu: 0, perdeu: 0 },
     viradas: { a_favor: 0, contra: 0 }, contraFortes: { v: 0, t: 0, esp: 0 }, contraFracos: { v: 0, t: 0, esp: 0 },
     porTipo: {}, porAno: {}, rivais: {}, zebrasAFavor: 0, zebrasContra: 0, sequencia: { tipo: null, n: 0 },
@@ -41,7 +41,7 @@ export function calcularEstatisticas(jogos) {
     r.placares[placar] = (r.placares[placar] || 0) + 1;
     const n = setsParaVencer(sets);
     // set decisivo: o jogo chegou ao último set possível (2×2 em melhor de 5; 1×1 em melhor de 3)
-    if (n >= 2 && sets.length === 2 * n - 1) r.decisivo[j.venceu ? "v" : "d"]++;
+    if (n >= 2 && sets.length === 2 * n - 1) { r.decisivo[j.venceu ? "v" : "d"]++; r.decisivo.esp += j.p ?? 0.5; }
     const [x1, y1] = sets[0];
     if (x1 > y1) { r.primeiroSet.ganhou++; if (j.venceu) r.primeiroSet.ganhouEVenceu++; }
     else { r.primeiroSet.perdeu++; if (j.venceu) r.primeiroSet.perdeuEVenceu++; }
@@ -87,15 +87,19 @@ export function calcularEstatisticas(jogos) {
 }
 
 /** Frases com os padrões mais marcantes (só quando há jogos suficientes). */
+const fmt1 = (x) => x.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+
 export function padroes(e) {
   const f = [];
   const pc = (x) => `${Math.round(x * 100)}%`;
+  // Set decisivo: compara com o que o rating previa para ESSES jogos (jogo que vai
+  // ao último set costuma ser contra adversário mais duro), não com o geral.
   const nDec = e.decisivo.v + e.decisivo.d;
-  if (nDec >= 4 && e.taxa != null) {
-    const d = e.taxaDecisivo - e.taxa;
-    if (d >= 0.1) f.push(["forte", `Cresce na pressão: venceu ${pc(e.taxaDecisivo)} dos jogos que chegaram ao set decisivo (${e.decisivo.v} de ${nDec}), acima do aproveitamento geral (${pc(e.taxa)}).`]);
-    else if (d <= -0.1) f.push(["atencao", `Sente a pressão: venceu só ${pc(e.taxaDecisivo)} dos jogos decididos no último set (${e.decisivo.v} de ${nDec}), abaixo do aproveitamento geral (${pc(e.taxa)}).`]);
-    else f.push(["neutro", `No set decisivo, rende como no resto do jogo: ${pc(e.taxaDecisivo)} de vitórias (${e.decisivo.v} de ${nDec}).`]);
+  if (nDec >= 4) {
+    const d = e.decisivo.v - e.decisivo.esp;
+    if (d >= 1) f.push(["forte", `Cresce na pressão: nos jogos que foram ao set decisivo venceu ${e.decisivo.v} de ${nDec}, ${fmt1(d)} a mais do que o rating previa para esses jogos (${fmt1(e.decisivo.esp)}).`]);
+    else if (d <= -1) f.push(["atencao", `Sente a pressão: nos jogos que foram ao set decisivo venceu ${e.decisivo.v} de ${nDec}, ${fmt1(-d)} a menos do que o rating previa para esses jogos (${fmt1(e.decisivo.esp)}).`]);
+    else f.push(["neutro", `No set decisivo rende o esperado pelo rating: venceu ${e.decisivo.v} de ${nDec} (previsto: ${fmt1(e.decisivo.esp)}).`]);
   }
   const nAp = e.apertados.v + e.apertados.d;
   if (nAp >= 8) {

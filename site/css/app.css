@@ -334,3 +334,9 @@ details > summary::-webkit-details-marker { display: none; }
   .jd-meta { grid-column: 1 / -1; flex-direction: row; gap: 8px; align-items: baseline; flex-wrap: wrap; }
   .jd-prob, .jd-res { grid-column: 1 / -1; order: 3; }
 }
+
+.filtros select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
+@media (max-width: 640px) { .filtros select, .filtros input[type=search] { width: 100%; flex: 1 1 100%; } }
+
+.hero-pagina .card { color: var(--tx); }
+.hero-pagina .card .r { color: var(--mut); }

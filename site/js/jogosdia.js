@@ -21,12 +21,16 @@ export async function viewJogosDoDia(ctx, q) {
   const fin = eventos.flatMap((e) => e.finalizados);
   const acertos = fin.filter((j) => (j.p >= 0.5) === j.a.venceu).length;
   const agora = new Date(Date.now() - 3 * 3600e3).toISOString().slice(11, 16);
+  const amanha = new Date(Date.parse(`${dados.dia || "2000-01-01"}T12:00:00Z`) + 864e5).toISOString().slice(0, 10);
+  // ordem: hoje antes de amanhã; jogos sem horário por último
+  for (const e of eventos) e.proximos.sort((x, y) => (x.dia || "").localeCompare(y.dia || "") || (!x.hora) - (!y.hora) || (x.hora || "").localeCompare(y.hora || "") || String(x.mesa).localeCompare(String(y.mesa), "pt-BR", { numeric: true }));
+  const umaHoraAtras = new Date(Date.now() - 4 * 3600e3).toISOString().slice(11, 16);
 
   const passa = (j) => (!filtro.q || `${j.a.nome} ${j.b.nome}`.includes(normalizar(filtro.q))) && (!filtro.eq || (j.p >= 0.4 && j.p <= 0.6));
   const lado = (l, p, dir) => `<a class="jd-lado ${dir ? "dir" : ""} ${p >= 0.5 ? "fav" : ""}" href="${link(l)}"><b>${esc(l.nome)}</b><small>${esc(l.clube)} · ${fmt(l.rating)}</small></a>`;
   const barra = (p) => `<div class="jd-prob" data-dica="Chance de vitória pela diferença de rating ao vivo (regressão logística)."><span class="num">${pct(p)}</span><div class="duelo"><i style="width:${p * 100}%"></i><i style="width:${(1 - p) * 100}%"></i></div><span class="num">${pct(1 - p)}</span></div>`;
   const proximo = (j) => `<div class="jd-jogo">
-      <div class="jd-meta"><b class="num">${esc(j.hora || "--:--")}</b>${j.hora && j.hora <= agora ? '<span class="tag zebra">agora / atrasado</span>' : ""}<small>${j.mesa ? `mesa ${esc(j.mesa)} · ` : ""}${esc(j.categoria)} · ${esc(j.fase)}${j.grupo ? ` ${esc(j.grupo)}` : ""}</small></div>
+      <div class="jd-meta"><b class="num">${j.dia && j.dia !== dados.dia ? `<span class="tag">${j.dia === amanha ? "amanhã" : j.dia.split("-").reverse().slice(0, 2).join("/")}</span> ` : ""}${esc(j.hora || "sem horário")}</b>${j.dia === dados.dia && j.hora && j.hora <= agora && j.hora >= umaHoraAtras ? '<span class="tag zebra">agora</span>' : ""}<small>${j.mesa ? `mesa ${esc(j.mesa)} · ` : ""}${esc(j.categoria)} · ${esc(j.fase)}${j.grupo ? ` ${esc(j.grupo)}` : ""}</small></div>
       ${lado(j.a, j.p, false)}${barra(j.p)}${lado(j.b, 1 - j.p, true)}</div>`;
   const finalizado = (j) => {
     const zebra = (j.p >= 0.5) !== j.a.venceu;
@@ -62,7 +66,7 @@ export async function viewJogosDoDia(ctx, q) {
       if (!prox.length && !feitos.length) return "";
       return `<section class="card mt jd-evento">
         <div class="cab" style="margin-bottom:6px"><div><h2 style="margin:0">${esc(e.nome)}</h2><p class="mut" style="margin:0">${esc(e.cidade || "")}${e.uf ? ` · ${esc(e.uf)}` : ""} · ${esc(e.tipo)}, peso ${e.peso}</p></div><a class="btn" href="#/ao-vivo/${encodeURIComponent(e.slug)}">Resultados do evento</a></div>
-        ${prox.length ? `<h3>A seguir</h3>${prox.slice(0, 60).map(proximo).join("")}${prox.length > 60 ? `<p class="mut">e mais ${prox.length - 60} jogos.</p>` : ""}` : ""}
+        ${prox.length ? `<h3>A seguir</h3>${prox.slice(0, 8).map(proximo).join("")}${prox.length > 8 ? `<details class="mt"><summary class="btn">Ver mais ${prox.length - 8} jogos</summary><div class="mt">${prox.slice(8).map(proximo).join("")}</div></details>` : ""}` : ""}
         ${feitos.length ? `<details class="mt"><summary class="btn">Já disputados hoje (${feitos.length})</summary><div class="mt">${feitos.map(finalizado).join("")}</div></details>` : ""}
       </section>`;
     }).join("") : '<div class="card vazio">Nenhum evento com jogos hoje.</div>'}

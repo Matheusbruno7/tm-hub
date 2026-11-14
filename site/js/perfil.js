@@ -135,7 +135,8 @@ function renderEstatisticas(alvo, { d, vivo, modelo, saldo, atual, hoje }) {
     const e = calcularEstatisticas(jogos);
     const frases = padroes(e);
     const evol = (d?.eventos || []).filter((x) => x.RatingFinal != null).map((x) => ({ x: String(x.DataFim || x.DataInicio).slice(0, 10), y: x.RatingFinal, rotulo: `${dataBR(x.DataFim || x.DataInicio)} · ${x.EventoNome}<br><b>${fmt(x.RatingFinal)}</b> (${sinal(x.Pontos)})` }))
-      .sort((a, b) => a.x.localeCompare(b.x)).filter((p) => periodo !== "12m" || (Date.parse(hoje) - Date.parse(p.x)) / 864e5 <= 365);
+      .sort((a, b) => a.x.localeCompare(b.x)).filter((p) => periodo !== "12m" || (Date.parse(hoje) - Date.parse(p.x)) / 864e5 <= 365)
+      .filter((p, i, arr) => i === arr.length - 1 || arr[i + 1].x !== p.x); // dois eventos no mesmo dia: fica o último
     if (saldo) evol.push({ x: hoje, y: atual, rotulo: `Agora (ao vivo): <b>${fmt(atual)}</b> (${sinal(saldo)} a publicar)` });
     const nDec = e.decisivo.v + e.decisivo.d, nAp = e.apertados.v + e.apertados.d, nDeuce = e.deuce.v + e.deuce.d;
     const ordemPlacar = ["3×0", "3×1", "3×2", "2×3", "1×3", "0×3", "2×0", "2×1", "1×2", "0×2"].filter((k) => e.placares[k]);
@@ -149,7 +150,7 @@ function renderEstatisticas(alvo, { d, vivo, modelo, saldo, atual, hoje }) {
       <div class="grade g4">
         <div class="card kpi"><div class="v">${pct(e.taxa)}</div><div class="r">de vitórias (${e.vitorias}V ${e.jogos - e.vitorias}D)</div></div>
         <div class="card kpi"><div class="v">${e.taxaSets != null ? pct(e.taxaSets) : "–"}</div><div class="r">dos sets ganhos (${e.sets.ganhos}–${e.sets.perdidos})</div></div>
-        <div class="card kpi" data-dica="Jogos que chegaram ao último set possível: 2×2 nos jogos em melhor de 5 (1×1 em melhor de 3)."><div class="v">${e.taxaDecisivo != null ? pct(e.taxaDecisivo) : "–"}</div><div class="r">no set decisivo · pressão do 2×2 (${e.decisivo.v}/${nDec})</div></div>
+        <div class="card kpi" data-dica="Jogos que chegaram ao último set possível: 2×2 nos jogos em melhor de 5 (1×1 em melhor de 3)."><div class="v">${e.taxaDecisivo != null ? pct(e.taxaDecisivo) : "–"}</div><div class="r">no set decisivo · pressão do 2×2 (${e.decisivo.v}/${nDec}; previsto ${fmt(e.decisivo.esp, 1)})</div></div>
         <div class="card kpi" data-dica="Vitórias reais menos a soma das chances de vitória antes de cada jogo."><div class="v ${e.vitorias - e.esperado >= 0 ? "txt-pos" : "txt-neg"}">${sinal(Math.round(e.vitorias - e.esperado))}</div><div class="r">vitórias acima do esperado pelo rating</div></div>
       </div>
       ${frases.length ? `<div class="card mt"><h3>Padrões</h3><ul class="padroes">${frases.map(([t, txt]) => `<li class="${t}">${esc(txt)}</li>`).join("")}</ul></div>` : ""}
