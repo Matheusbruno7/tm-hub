@@ -1,4 +1,7 @@
-import { buscarAtletasAoVivo, carregarAtletaAoVivo, carregarAtletas, carregarEventoAoVivo, carregarModelo, carregarRanking, carregarResumoAoVivo, carregarSaldos, FORMATOS, projetarClubes, REGIOES, regiaoDe, SEM_ESTADO, simular } from "./dados.js";
+import { normalizar as normalizarTexto, buscarAtletasAoVivo, carregarAtletaAoVivo, carregarAtletas, carregarEventoAoVivo, carregarModelo, carregarRanking, carregarResumoAoVivo, carregarSaldos, FORMATOS, projetarClubes, REGIOES, regiaoDe, SEM_ESTADO, simular } from "./dados.js";
+import { viewAtleta as viewAtletaRanking, viewAtletas } from "./atletas.js";
+import { abrirCartao, botaoCompartilhar } from "./cartao.js";
+import { viewPontos, viewPontosAtleta } from "./pontos.js";
 import { ativarDicas, barrasAgrupadas, barrasVerticais, esc, fmt, legenda, pct } from "./graficos.js";
 
 const main = document.getElementById("conteudo");
@@ -35,7 +38,10 @@ const campoForca = (sexo) => (sexo === "M" ? "forca_masculino" : sexo === "F" ? 
 const ufRotulo = (uf) => (uf === SEM_ESTADO ? "Sem estado" : uf);
 const aviso = () => `<div class="aviso">${ICONE_INFO}<div><b>Os dados usam os números dos atletas do último ano.</b> Só contam atletas que disputaram eventos oficiais da CBTM nas últimas 52 semanas. Atletas inscritos diretamente por federações aparecem separados.</div></div>`;
 
+const SECAO_MENU = { comparar: "clubes", simulador: "clubes", "ao-vivo": "pontos" };
+const subnavClubes = (atual) => `<nav class="subnav" aria-label="Clubes">${[["clubes", "Ranking de Clubes"], ["comparar", "Comparar"], ["simulador", "Simulador de confronto"]].map(([r, n]) => `<a href="#/${r}" class="${r === atual ? "on" : ""}">${n}</a>`).join("")}</nav>`;
 function marcarMenu(secao) {
+  secao = SECAO_MENU[secao] || secao;
   document.querySelectorAll(".menu a").forEach((a) => a.classList.toggle("on", a.dataset.secao === secao));
 }
 
@@ -55,12 +61,13 @@ function viewInicio() {
       <a class="card atalho" href="#/comparar"><h2>Comparar clubes</h2><p class="mut">Até 4 clubes lado a lado: elite, profundidade, volume e classes de rating.</p></a>
       <a class="card atalho" href="#/simulador"><h2>Simulador de confronto</h2><p class="mut">A chance de cada clube vencer um confronto por equipes, jogo a jogo.</p></a>
     </div>
-    <div class="grade g2 mt">
+    <div class="grade g3 mt">
       <div class="card"><h3>Top 5 · Força do Clube</h3>
         ${top.map((c, i) => `<div class="comp-l" style="grid-template-columns:24px minmax(0,1fr) 56px"><span class="mut num">${i + 1}</span><a href="#/clubes/${c.id}" class="clube-nome">${esc(c.nome)} <span class="tag">${esc(ufRotulo(c.uf))}</span></a><b>${fmt(c.forca, 1)}</b></div>`).join("")}
       </div>
-      <div class="card"><h3><span class="ao-vivo-pulso" aria-hidden="true"></span>Ao vivo</h3><p>Os pontos de rating de cada jogo assim que o resultado cai na CBTM.</p><a class="btn prim" href="#/ao-vivo">Ver jogos e buscar atleta →</a>
-        <p class="mut mt" style="font-size:13px"><b>Em breve:</b> ranking e rating dos atletas, com previsões até o fim do ano, metas e torneios a priorizar.</p></div>
+      <div class="card"><h3><span class="ao-vivo-pulso" aria-hidden="true"></span>Ao vivo</h3><p>Os pontos de rating de cada jogo assim que o resultado cai na CBTM.</p><a class="btn prim" href="#/pontos">Ver pontos e buscar atleta →</a>
+        </div>
+      <div class="card"><h3>Atletas</h3><p>Rating, rankings, <b>previsão até o fim do ano</b>, metas e quais torneios priorizar.</p><a class="btn prim" href="#/atletas">Buscar atleta →</a></div>
     </div>`;
 }
 
@@ -80,7 +87,7 @@ function filtrarClubes(q) {
   if (busca) lista = lista.filter((c) => c.nome_cbtm.toLowerCase().includes(busca));
   const ordem = q.get("ordem") || "forca";
   const dir = q.get("dir") === "asc" ? 1 : -1;
-  const chaves = { forca: campo, elite: "elite", prof: "profundidade", atletas: "atletas_ativos", top10: "top10_nacional", nome: "nome" };
+  const chaves = { forca: campo, elite: "elite", prof: "profundidade", atletas: "atletas_ativos", top10: "top100_rating", nome: "nome" };
   const k = chaves[ordem] || campo;
   lista.sort((a, b) => (k === "nome" ? a.nome.localeCompare(b.nome) * -dir : (a[k] - b[k]) * dir) || a._posBr - b._posBr);
   return { lista, campo, sexo };
@@ -93,8 +100,12 @@ function viewClubes(q) {
   const ufs = [...new Set(R.clubes.map((c) => c.uf).filter((u) => u !== SEM_ESTADO))].sort();
   const sexo = q.get("sexo") || "";
   main.innerHTML = `
-    <div class="cab"><div><h1>Ranking de Clubes</h1><p>Clubes ordenados pela <b>Força do Clube</b> (0 a 1.000), que combina a qualidade dos melhores atletas, a profundidade do elenco e o número de atletas ativos. <a href="#/metodologia">Como é calculada</a></p></div></div>
+    ${subnavClubes("clubes")}
+    <div class="cab"><div><h1>Ranking de Clubes</h1><p>Clubes ordenados pela <b>Força do Clube</b> (0 a 1.000): a qualidade dos melhores atletas, a profundidade do elenco e o número de atletas ativos. <a href="#/metodologia">Como é calculada</a></p></div>${botaoCompartilhar("btn-ranking")}</div>
     ${aviso()}
+    <div class="podio">${R.clubes.slice(0, 3).map((c, i) => `<a href="#/clubes/${c.id}"><span class="medalha">${i + 1}º</span>
+      <div class="nome">${esc(c.nome)}</div><div class="mut" style="font-size:13px">${esc(ufRotulo(c.uf))} · ${fmt(c.atletas_ativos)} atletas ativos</div>
+      <div class="forca">${fmt(c.forca, 1)}</div><div class="barra"><i style="width:${c.forca / 10}%"></i></div></a>`).join("")}</div>
     <div class="grade g4">
       <div class="card kpi"><div class="v">${fmt(r.clubes_no_ranking)}</div><div class="r">clubes no ranking</div></div>
       <div class="card kpi"><div class="v">${fmt(r.atletas_ativos_em_clubes)}</div><div class="r">atletas ativos em clubes</div></div>
@@ -107,13 +118,23 @@ function viewClubes(q) {
     </div>
     <div id="painel"></div>`;
   main.querySelectorAll("[data-aba]").forEach((b) => b.addEventListener("click", () => { q.set("aba", b.dataset.aba); q.delete("pagina"); irPara("clubes", q); }));
+  main.querySelector("#btn-ranking").addEventListener("click", () => {
+    const { lista, campo } = filtrarClubes(q);
+    const filtro = [q.get("uf"), q.get("regiao") && q.get("regiao") !== "sem" ? `Região ${q.get("regiao")}` : "", q.get("sexo") === "M" ? "masculino" : q.get("sexo") === "F" ? "feminino" : ""].filter(Boolean).join(" · ");
+    abrirCartao({
+      secao: "Ranking de Clubes · Força do Clube", nome: `Top 10${filtro ? ` · ${filtro}` : " do Brasil"}`,
+      linhas: ["Força do Clube (0 a 1.000) com os atletas que jogaram nos últimos 12 meses"],
+      lista: { neutro: true, titulo: "Clubes mais fortes", itens: lista.slice(0, 10).map((c) => [`${c._posBr}º`, c.nome, `${ufRotulo(c.uf)} · ${fmt(c.atletas_ativos)} atletas ativos`, fmt(c[campo], 1)]) },
+      texto: "Ranking de Clubes do tênis de mesa brasileiro", arquivo: "ranking-de-clubes",
+    });
+  });
   const painel = main.querySelector("#painel");
 
   if (aba === "federacoes") {
     painel.innerHTML = `
       <p class="mut">Atletas inscritos diretamente pela federação estadual, sem clube. Eles não entram no Ranking de Clubes.</p>
-      <div class="tabela-wrap"><table><thead><tr><th>Federação</th><th>UF</th><th class="dir">Atletas ativos</th><th class="dir">Masc.</th><th class="dir">Fem.</th><th class="dir">Top 10 nacional</th></tr></thead><tbody>
-      ${R.federacoes.itens.map((f) => `<tr class="clic" data-id="${f.id}"><td class="clube-nome">${esc(f.nome)}</td><td>${esc(ufRotulo(f.uf))}</td><td class="dir num">${fmt(f.atletas_ativos)}</td><td class="dir num">${fmt(f.atletas_masculino)}</td><td class="dir num">${fmt(f.atletas_feminino)}</td><td class="dir num">${fmt(f.top10_nacional)}</td></tr>`).join("")}
+      <div class="tabela-wrap"><table><thead><tr><th>Federação</th><th>UF</th><th class="dir">Atletas ativos</th><th class="dir">Masc.</th><th class="dir">Fem.</th><th class="dir">Top 100 rating</th></tr></thead><tbody>
+      ${R.federacoes.itens.map((f) => `<tr class="clic" data-id="${f.id}"><td class="clube-nome">${esc(f.nome)}</td><td>${esc(ufRotulo(f.uf))}</td><td class="dir num">${fmt(f.atletas_ativos)}</td><td class="dir num">${fmt(f.atletas_masculino)}</td><td class="dir num">${fmt(f.atletas_feminino)}</td><td class="dir num">${fmt(f.top100_rating)}</td></tr>`).join("")}
       </tbody></table></div>`;
     painel.querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", () => irPara(`clubes/${tr.dataset.id}`)));
     return;
@@ -151,7 +172,7 @@ function viewClubes(q) {
     const posProj = PROJ ? PROJ.posicoes(campo, contaSexo) : null;
     main.querySelector("#tabela").innerHTML = lista.length ? `
       <div class="tabela-wrap"><table class="tab-clubes">
-        <thead><tr><th>#</th>${th("nome", "Clube")}<th>UF</th>${th("forca", `Força do Clube${sexoN ? ` (${sexoN})` : ""}`)}${th("elite", "Elite", "dir")}${th("prof", "Profund.", "dir")}${th("atletas", "Atletas ativos", "dir")}${th("top10", "Top 10 nac.", "dir")}<th class="dir th-quebra" data-dica="Posição que o clube deve ter na próxima atualização oficial (segunda-feira), somando os pontos dos jogos já lançados na CBTM e ainda não publicados no rating oficial.">Provável posição amanhã</th></tr></thead>
+        <thead><tr><th>#</th>${th("nome", "Clube")}<th>UF</th>${th("forca", `Força do Clube${sexoN ? ` (${sexoN})` : ""}`)}${th("elite", "Elite", "dir")}${th("prof", "Profund.", "dir")}${th("atletas", "Atletas ativos", "dir")}${th("top10", "Top 100 rating", "dir")}<th class="dir th-quebra" data-dica="Posição que o clube deve ter na próxima atualização oficial (segunda-feira), somando os pontos dos jogos já lançados na CBTM e ainda não publicados no rating oficial.">Provável posição amanhã</th></tr></thead>
         <tbody>${pg.map((c) => `
           <tr class="clic" data-id="${c.id}">
             <td class="pos">${c._posBr}</td>
@@ -161,7 +182,7 @@ function viewClubes(q) {
             <td class="dir num">${fmt(c.elite, 1)}</td>
             <td class="dir num">${fmt(c.profundidade, 1)}</td>
             <td class="dir num">${fmt(c.atletas_ativos)}</td>
-            <td class="dir num">${fmt(c.top10_nacional)}</td>
+            <td class="dir num">${fmt(c.top100_rating)}</td>
             <td class="dir num">${celulaProjecao(c, posProj)}</td>
           </tr>`).join("")}</tbody></table></div>
       <div class="paginacao"><span>${fmt(lista.length)} clubes${filtrado ? " no filtro" : ""} · a coluna # é a posição no Brasil</span>
@@ -212,6 +233,9 @@ async function viewClube(id) {
   const comp = (rot, v, dica) => `<div class="comp-l" data-dica="${esc(dica)}"><span>${rot}</span><span class="barra"><i style="width:${v}%"></i></span><b>${fmt(v, 1)}</b></div>`;
   const classes = (obj) => Object.entries(obj).map(([k, v]) => ({ rotulo: k, valor: v }));
   const faixas = ["Base (Sub)", "Absoluto", "Adulto", "Master"].map((f) => ({ rotulo: f, valor: c.faixas_etarias?.[f] || 0 }));
+  const doEstado = R.clubes.filter((x) => x.uf === c.uf);
+  const media = (lista, k) => lista.reduce((t, x) => t + (x[k] || 0), 0) / Math.max(1, lista.length);
+  const serieComp = [{ nome: c.nome, cor: "var(--s1)" }, { nome: `Média de ${c.uf === SEM_ESTADO ? "clubes sem estado" : c.uf}`, cor: "var(--s2)" }, { nome: "Média do Brasil", cor: "var(--s3)" }];
 
   main.innerHTML = `
     <a class="voltar" href="#/clubes">← Ranking de Clubes</a>
@@ -220,7 +244,7 @@ async function viewClube(id) {
         <h1>${esc(c.nome)}</h1>
         <p class="mut">${esc(c.nome_cbtm)} · ${c.uf === SEM_ESTADO ? '<span class="tag alerta">sem estado identificado</span>' : `${esc(c.uf)} · ${esc(regiaoDe(c.uf) || "")}`}</p>
         ${ehFed ? '<p><span class="tag">Atletas vinculados a federação. Não entra no Ranking de Clubes.</span></p>' : `<p><b>${c.posicao_brasil}º</b> no Brasil${c.uf !== SEM_ESTADO ? ` · <b>${c.posicao_estado}º</b> em ${esc(c.uf)}` : ""}</p>
-        <div class="escolha"><a class="btn" href="#/comparar?c=0.${id}">Comparar com outros clubes</a><a class="btn prim" href="#/simulador?a=${id}">Simular confronto</a></div>`}
+        <div class="escolha">${botaoCompartilhar("btn-clube")}<a class="btn" href="#/comparar?c=0.${id}">Comparar com outros clubes</a><a class="btn" href="#/simulador?a=${id}">Simular confronto</a></div>`}
       </div>
       ${ehFed ? "" : `<div class="selo"><div class="r">Força do Clube</div><div class="v">${fmt(c.forca, 1)}</div><div class="r">de 1.000</div></div>`}
     </div>
@@ -228,9 +252,16 @@ async function viewClube(id) {
     <div class="grade g4">
       <div class="card kpi"><div class="v">${fmt(c.atletas_ativos)}</div><div class="r">atletas ativos (${fmt(c.atletas_cadastrados)} no rating)</div></div>
       <div class="card kpi"><div class="v">${fmt(c.atletas_masculino)} · ${fmt(c.atletas_feminino)}</div><div class="r">masculino · feminino</div></div>
-      <div class="card kpi"><div class="v">${fmt(c.top10_nacional)}</div><div class="r">atletas no top 10 de algum ranking nacional</div></div>
+      <div class="card kpi"><div class="v">${fmt(c.top100_rating)}</div><div class="r">atletas no top 100 do rating nacional</div></div>
       <div class="card kpi"><div class="v">${fmt(c.atletas_paralimpicos)}</div><div class="r">atletas paralímpicos</div></div>
     </div>
+    ${ehFed ? "" : `<div class="grade g2 mt">
+      <div class="card"><h3>Comparado com o estado e o Brasil</h3>
+        ${barrasAgrupadas(["elite", "profundidade", "volume"].map((k) => ({ rotulo: { elite: "Elite", profundidade: "Profundidade", volume: "Volume" }[k], valores: [c[k], media(doEstado, k), media(R.clubes, k)] })), serieComp)}
+        ${legenda(serieComp)}
+        <p class="mut" style="font-size:13px">Mais forte que <b>${`${Math.floor((100 * (R.clubes.length - c.posicao_brasil)) / Math.max(1, R.clubes.length - 1))}%`}</b> dos clubes do Brasil${c.uf !== SEM_ESTADO ? ` e ${c.posicao_estado}º de ${doEstado.length} em ${esc(c.uf)}` : ""}.</p></div>
+      <div class="card" id="semana"><h3>Desde a última atualização oficial</h3><div class="carregando" style="padding:20px">Carregando pontos ao vivo…</div></div>
+    </div>`}
     <div class="grade g2 mt">
       <div class="card"><h3>Composição da Força</h3>
         <div class="comp">
@@ -254,12 +285,38 @@ async function viewClube(id) {
       ${[["", "Todos"], ["M", "Masculino"], ["F", "Feminino"]].map(([v, n]) => `<button type="button" data-sx="${v}" aria-pressed="${v === ""}">${n}</button>`).join("")}</div></div>
     <div id="lista-atletas"></div>`;
 
+  if (!ehFed) {
+    main.querySelector("#btn-clube").addEventListener("click", () => abrirCartao({
+      secao: "Ranking de Clubes · Força do Clube", nome: c.nome,
+      linhas: [`${c.uf === SEM_ESTADO ? "" : `${c.uf} · `}${c.posicao_brasil}º no Brasil${c.uf !== SEM_ESTADO ? ` · ${c.posicao_estado}º em ${c.uf}` : ""}`],
+      destaque: { rotulo: "Força do Clube", valor: fmt(c.forca, 1), sub: `Mais forte que ${`${Math.floor((100 * (R.clubes.length - c.posicao_brasil)) / Math.max(1, R.clubes.length - 1))}%`} dos clubes do Brasil` },
+      metricas: [["atletas ativos", fmt(c.atletas_ativos)], ["no top 100 do rating", fmt(c.top100_rating)], ["masc. · fem.", `${c.atletas_masculino} · ${c.atletas_feminino}`]],
+      barras: { titulo: "Composição", itens: [["Elite", c.elite / 100, fmt(c.elite, 1)], ["Profundidade", c.profundidade / 100, fmt(c.profundidade, 1)], ["Volume", c.volume / 100, fmt(c.volume, 1)]] },
+      lista: { neutro: true, titulo: "Melhores atletas", itens: atletas.slice(0, 5).map((a, i) => [i + 1, a.nome, `Classe ${a.classe}`, fmt(a.rating)]) },
+      texto: `${c.nome}: Força do Clube ${fmt(c.forca, 1)} no tênis de mesa`, arquivo: `clube-${id}`,
+    }));
+    Promise.all([carregarSaldos(), obterProjecao()]).then(([s, proj]) => {
+      const alvo = main.querySelector("#semana");
+      if (!alvo) return;
+      const comSaldo = atletas.map((a) => ({ ...a, saldo: s.saldos[`${normalizarTexto(a.nome)}|${normalizarTexto(c.nome_cbtm)}`] || 0 })).filter((a) => a.saldo).sort((x, y) => y.saldo - x.saldo);
+      const total = comSaldo.reduce((t, a) => t + a.saldo, 0);
+      const pos = proj.posicoes("forca", (x) => x.atletas_ativos > 0).get(c.id);
+      const dif = c.posicao_brasil - pos;
+      alvo.innerHTML = `<h3>Desde a última atualização oficial</h3>
+        <div class="grade g2"><div><div class="kpi" style="padding:0"><div class="v ${total > 0 ? "txt-pos" : total < 0 ? "txt-neg" : ""}">${total > 0 ? "+" : ""}${fmt(total)}</div><div class="r">pontos de rating somados (${comSaldo.length} atletas jogaram)</div></div></div>
+        <div><div class="kpi" style="padding:0"><div class="v">${pos}º</div><div class="r">provável posição amanhã ${dif > 0 ? `<span class="sobe">▲ ${dif}</span>` : dif < 0 ? `<span class="desce">▼ ${-dif}</span>` : "(mantém)"}</div></div></div></div>
+        ${comSaldo.length ? `<div class="mt">${comSaldo.slice(0, 6).map((a) => `<a class="linha-rank simples" href="#/pontos/${encodeURIComponent(`~${normalizarTexto(a.nome)}|${normalizarTexto(c.nome_cbtm)}`)}"><span class="nome-rank"><b>${esc(a.nome)}</b><small>Classe ${esc(a.classe)} · rating ${fmt(a.rating)}</small></span><span class="pts ${a.saldo > 0 ? "pos" : "neg"}">${a.saldo > 0 ? "+" : ""}${fmt(a.saldo)}</span></a>`).join("")}</div>` : '<p class="mut mt">Nenhum atleta do clube jogou desde a última atualização oficial.</p>'}
+        <p class="mut" style="font-size:12px;margin-top:8px">Rating oficial da CBTM com jogos até ${String(s.oficial_ate || "").split("-").reverse().join("/")}. <a href="#/pontos">Ver pontos pós-jogo</a></p>`;
+    }).catch(() => { const alvo = main.querySelector("#semana"); if (alvo) alvo.innerHTML = '<h3>Desde a última atualização oficial</h3><p class="mut">Pontos ao vivo indisponíveis no momento.</p>'; });
+  }
+
   const lista = (sx) => {
     const l = atletas.filter((a) => !sx || a.sexo === sx);
     main.querySelector("#lista-atletas").innerHTML = l.length ? `<div class="tabela-wrap"><table>
-      <thead><tr><th>#</th><th>Atleta</th><th>Sexo</th><th>Classe</th><th class="dir">Rating</th><th class="dir">Índice</th><th class="dir">Melhor posição nacional</th></tr></thead>
-      <tbody>${l.map((a, i) => `<tr><td class="pos">${i + 1}</td><td class="clube-nome">${esc(a.nome)} ${a.paralimpico ? '<span class="tag">paralímpico</span>' : ""}</td><td>${a.sexo === "M" ? "Masc." : "Fem."}</td><td>${esc(a.classe)}</td><td class="dir num">${fmt(a.rating)}</td><td class="dir num">${fmt(a.indice, 1)}</td><td class="dir num">${a.melhor_posicao ? `${a.melhor_posicao}º` : "–"}</td></tr>`).join("")}</tbody></table></div>`
+      <thead><tr><th>#</th><th>Atleta</th><th>Sexo</th><th>Classe</th><th class="dir">Rating</th><th class="dir">Índice</th><th class="dir" data-dica="Posição no rating nacional, entre todos os atletas do mesmo sexo.">Rating Brasil</th><th class="dir" data-dica="Categoria mais alta do Absoluto em que o atleta aparece no ranking olímpico (A é a mais forte) e a posição nela.">Absoluto</th></tr></thead>
+      <tbody>${l.map((a, i) => `<tr class="clic" data-atleta="${esc(`~${normalizarTexto(a.nome)}|${normalizarTexto(c.nome_cbtm)}`)}"><td class="pos">${i + 1}</td><td class="clube-nome">${esc(a.nome)} ${a.paralimpico ? '<span class="tag">paralímpico</span>' : ""}</td><td>${a.sexo === "M" ? "Masc." : "Fem."}</td><td><span class="tag">${esc(a.classe)}</span></td><td class="dir num">${fmt(a.rating)}</td><td class="dir"><div class="forca-cel" style="min-width:120px"><b>${fmt(a.indice, 1)}</b><span class="barra"><i style="width:${a.indice}%"></i></span></div></td><td class="dir num">${a.posicao_rating ? `${fmt(a.posicao_rating)}º` : "–"}</td><td class="dir num">${a.absoluto ? `Abs. ${esc(a.absoluto.categoria)} · ${a.absoluto.posicao}º` : "–"}</td></tr>`).join("")}</tbody></table></div>`
       : '<div class="card vazio">Nenhum atleta.</div>';
+    main.querySelectorAll("tr[data-atleta]").forEach((tr) => tr.addEventListener("click", () => irPara(`pontos/${encodeURIComponent(tr.dataset.atleta)}`)));
   };
   main.querySelectorAll("[data-sx]").forEach((b) => b.addEventListener("click", () => {
     main.querySelectorAll("[data-sx]").forEach((x) => x.setAttribute("aria-pressed", x === b));
@@ -294,6 +351,7 @@ function viewComparar(q) {
   const series = clubes.map((c) => ({ nome: c.nome, cor: c.cor }));
 
   main.innerHTML = `
+    ${subnavClubes("comparar")}
     <div class="cab"><div><h1>Comparar clubes</h1><p>Escolha até 4 clubes para ver lado a lado.</p></div></div>
     ${aviso()}
     <div class="card"><div class="escolha">
@@ -337,7 +395,7 @@ function viewComparar(q) {
         ${linha("Estado", (c) => esc(ufRotulo(c.uf)))}
         ${linha("Atletas ativos", (c) => fmt(c.atletas_ativos))}
         ${linha("Masculino · feminino", (c) => `${fmt(c.atletas_masculino)} · ${fmt(c.atletas_feminino)}`)}
-        ${linha("Atletas no top 10 nacional", (c) => fmt(c.top10_nacional))}
+        ${linha("Atletas no top 100 do rating", (c) => fmt(c.top100_rating))}
         ${linha("Rating médio masc.", (c) => fmt(c.rating_medio_masculino))}
         ${linha("Rating médio fem.", (c) => fmt(c.rating_medio_feminino))}
         ${linha("Melhor classe", melhorClasse)}
@@ -356,6 +414,7 @@ async function viewSimulador(q) {
   const F = FORMATOS[formato];
 
   main.innerHTML = `
+    ${subnavClubes("simulador")}
     <div class="cab"><div><h1>Simulador de confronto</h1><p>A chance de cada clube vencer um confronto por equipes, calculada com a <b>regressão logística</b> dos jogos oficiais. <a href="#/metodologia">Entenda o modelo</a></p></div></div>
     ${aviso()}
     <div class="filtros">
@@ -470,6 +529,17 @@ async function viewMetodologia() {
         <li>O confronto soma as chances de todas as combinações de resultado dos jogos. Formato padrão: Mini Davis da CBTM (Manual, item 1.9.2.10).</li>
         <li>Limitações: o modelo considera só a diferença de rating, sem forma recente, estilo de jogo ou confronto direto; a força da dupla é aproximada pela média do rating.</li>
       </ul>
+      <h2>Pontos pós-jogo</h2>
+      <ul>
+        <li>Um robô lê os resultados da CBTM a cada minuto e calcula os pontos de rating de cada jogo com a regra oficial: rating dos dois atletas imediatamente antes do jogo, tabela de vitória esperada ou inesperada e peso do evento. A regra foi conferida com 60 confrontos oficiais (100% de acerto).</li>
+        <li>A <b>chance de vencer</b> mostrada em cada jogo é a do modelo de regressão logística, só com a diferença de rating antes do jogo. Nos jogos já publicados pela CBTM, o rating do adversário é aproximado pela faixa da tabela.</li>
+      </ul>
+      <h2>Previsão até o fim do ano e metas</h2>
+      <ul>
+        <li>A chance de vitória soma um ajuste de <b>forma recente</b>: vitórias acima ou abaixo do esperado nos últimos 12 meses, com mais peso nos jogos recentes. No teste com jogos de maio a setembro de 2026, a forma melhorou um pouco a previsão (erro 0,7% menor).</li>
+        <li>Para cada evento do plano do atleta, simulamos 3.000 vezes o número de jogos e os adversários, sorteados do histórico do próprio atleta, e aplicamos a tabela oficial.</li>
+        <li>"Quais torneios priorizar" mostra quanto cada evento acrescenta à chance de alcançar a meta.</li>
+      </ul>
       ${m ? `<h2>Calibração do modelo</h2><p class="mut">Taxa de vitória do favorito observada nos jogos e prevista pelo modelo, por faixa de diferença de rating.</p>
       <div class="tabela-wrap"><table><thead><tr><th class="dir">Δ rating (aprox.)</th><th class="dir">Jogos</th><th class="dir">Observado</th><th class="dir">Previsto</th></tr></thead><tbody>
       ${m.calibracao.map((c) => `<tr><td class="dir num">${fmt(c.delta)}</td><td class="dir num">${fmt(c.jogos)}</td><td class="dir num">${pct(c.observado)}</td><td class="dir num">${pct(c.previsto)}</td></tr>`).join("")}
@@ -553,7 +623,7 @@ async function viewEventoAoVivo(slug, q) {
     const lado = (l, cls) => `<div class="${cls}"><a href="#/atleta/${encodeURIComponent(l.chave)}" class="${l.venceu ? "venceu" : ""}">${esc(l.nome)}</a>
       <div class="linha-meta">${esc(l.clube)} · ${fmt(l.antes)} ${pontos(l.pontos)}</div></div>`;
     main.innerHTML = `
-      <a class="voltar" href="#/ao-vivo">← Ao vivo</a>
+      <a class="voltar" href="#/pontos">← Pontos pós-jogo</a>
       <div class="cab"><div><h1>${e.ao_vivo ? '<span class="ao-vivo-pulso" aria-hidden="true"></span>' : ""}${esc(e.nome)}</h1>
         <p>${esc(e.cidade)} · ${dataBR(e.inicio)}${e.fim !== e.inicio ? ` a ${dataBR(e.fim)}` : ""} · ${esc(e.tipo)}, peso ${e.peso}${e.peso_estimado ? " (estimado)" : ""} · ${fmt(jogos.length)} jogos calculados</p></div></div>
       <div class="filtros">
@@ -579,12 +649,12 @@ async function viewAtleta(chave) {
   const desenhar = async () => {
     let a;
     try { a = await carregarAtletaAoVivo(chave); } catch (e) {
-      main.innerHTML = `<a class="voltar" href="#/ao-vivo">← Ao vivo</a><div class="card vazio">Este atleta não tem jogos ainda não publicados no rating oficial.</div>`; return;
+      main.innerHTML = `<a class="voltar" href="#/pontos">← Pontos pós-jogo</a><div class="card vazio">Este atleta não tem jogos ainda não publicados no rating oficial.</div>`; return;
     }
     const r = await carregarResumoAoVivo().catch(() => ({}));
     const jogos = [...a.jogos].reverse();
     main.innerHTML = `
-      <a class="voltar" href="#/ao-vivo">← Ao vivo</a>
+      <a class="voltar" href="#/pontos">← Pontos pós-jogo</a>
       <div class="card det-topo">
         <div><h1>${esc(a.nome)}</h1><p class="mut">${esc(a.clube)}</p>
           <p>${fmt(a.jogos.length)} jogos · ${fmt(a.vitorias)} vitórias · ${fmt(a.jogos.length - a.vitorias)} derrotas, em ${fmt(a.eventos.length)} evento(s) ainda não publicado(s) no oficial</p></div>
@@ -606,7 +676,12 @@ async function render() {
   const { partes, q } = rota();
   clearInterval(recarga);
   try {
-    if (partes[0] === "ao-vivo" && partes[1]) await viewEventoAoVivo(decodeURIComponent(partes.slice(1).join("/")), q);
+    const ctx = { main, marcarMenu, irPara, atualizarQuery, carregarModelo };
+    if (partes[0] === "pontos" && partes[1]) await viewPontosAtleta(ctx, decodeURIComponent(partes.slice(1).join("/")));
+    else if (partes[0] === "pontos") await viewPontos(ctx, q);
+    else if (partes[0] === "atletas" && partes[1]) await viewAtletaRanking(ctx, decodeURIComponent(partes.slice(1).join("/")));
+    else if (partes[0] === "atletas") await viewAtletas(ctx, q);
+    else if (partes[0] === "ao-vivo" && partes[1]) await viewEventoAoVivo(decodeURIComponent(partes.slice(1).join("/")), q);
     else if (partes[0] === "ao-vivo") await viewAoVivo();
     else if (partes[0] === "atleta" && partes[1]) await viewAtleta(decodeURIComponent(partes.slice(1).join("/")));
     else if (partes[0] === "clubes" && partes[1]) await viewClube(partes[1]);

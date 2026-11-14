@@ -70,3 +70,36 @@ export function ativarDicas() {
   }, { passive: true });
   document.addEventListener("scroll", () => (dica.hidden = true), { passive: true });
 }
+
+// Linha do tempo (uma série) com faixa opcional e pontos com dica.
+// pontos: [{x: 'AAAA-MM-DD', y, rotulo}], faixa: [{x, lo, hi}] (projeção)
+export function linhaTempo(pontos, { faixa = [], referencias = [], altura = 220, formatoY = (v) => fmt(v) } = {}) {
+  const L = 640, esq = 46, dir = 12, topo = 14, base = altura - 24;
+  const todos = [...pontos.map((p) => p.y), ...faixa.flatMap((f) => [f.lo, f.hi]), ...referencias.map((r) => r.y)];
+  if (!todos.length) return "";
+  let min = Math.min(...todos), max = Math.max(...todos);
+  if (max - min < 50) { min -= 25; max += 25; }
+  const pad = (max - min) * 0.08; min -= pad; max += pad;
+  const datas = [...pontos.map((p) => Date.parse(p.x)), ...faixa.map((f) => Date.parse(f.x))];
+  const t0 = Math.min(...datas), t1 = Math.max(...datas, t0 + 864e5);
+  const X = (d) => esq + ((Date.parse(d) - t0) / (t1 - t0)) * (L - esq - dir);
+  const Y = (v) => base - ((v - min) / (max - min)) * (base - topo);
+  let s = `<svg viewBox="0 0 ${L} ${altura}" role="img" aria-label="Evolução">`;
+  for (let i = 0; i <= 4; i++) {
+    const v = min + ((max - min) * i) / 4;
+    s += `<line class="eixo" x1="${esq}" x2="${L - dir}" y1="${Y(v)}" y2="${Y(v)}" stroke-dasharray="${i ? "2 4" : ""}"/><text x="${esq - 6}" y="${Y(v) + 4}" text-anchor="end">${formatoY(Math.round(v))}</text>`;
+  }
+  const anos = new Set(pontos.map((p) => p.x.slice(0, 4)));
+  for (const a of anos) { const x = X(`${a}-01-01`); if (x > esq && x < L - dir) s += `<text x="${x}" y="${altura - 6}" text-anchor="middle">${a}</text><line class="eixo" x1="${x}" x2="${x}" y1="${base}" y2="${base + 4}"/>`; }
+  for (const r of referencias) s += `<line x1="${esq}" x2="${L - dir}" y1="${Y(r.y)}" y2="${Y(r.y)}" stroke="var(--mut)" stroke-dasharray="5 4"/><text x="${L - dir}" y="${Y(r.y) - 4}" text-anchor="end" class="rot">${esc(r.rotulo)}</text>`;
+  if (faixa.length) {
+    const ida = faixa.map((f) => `${X(f.x)},${Y(f.hi)}`).join(" ");
+    const volta = [...faixa].reverse().map((f) => `${X(f.x)},${Y(f.lo)}`).join(" ");
+    s += `<polygon points="${ida} ${volta}" fill="var(--s1)" opacity=".16"/>`;
+    s += `<polyline points="${faixa.map((f) => `${X(f.x)},${Y(f.mid)}`).join(" ")}" fill="none" stroke="var(--s1)" stroke-width="2" stroke-dasharray="6 4"/>`;
+  }
+  if (pontos.length) s += `<polyline points="${pontos.map((p) => `${X(p.x)},${Y(p.y)}`).join(" ")}" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round"/>`;
+  for (const p of pontos) s += `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="3" fill="var(--s1)" stroke="var(--card)" stroke-width="2"/><circle cx="${X(p.x)}" cy="${Y(p.y)}" r="9" fill="transparent" data-dica="${esc(p.rotulo)}"/>`;
+  for (const f of faixa) s += `<circle cx="${X(f.x)}" cy="${Y(f.mid)}" r="9" fill="transparent" data-dica="${esc(f.rotulo || "")}"/>`;
+  return `<div class="graf">${s}</svg></div>`;
+}

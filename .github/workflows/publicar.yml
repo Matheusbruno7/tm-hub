@@ -29,8 +29,13 @@ jobs:
         with:
           repository: Matheusbruno7/tm-clubes
           path: _tm-clubes
-      - name: Copiar dados para o site
-        run: scripts/sincronizar_dados.sh _tm-clubes
+      - name: Baixar o motor de previsão do tm-ranking (branch padrão)
+        uses: actions/checkout@v4
+        with:
+          repository: Matheusbruno7/tm-ranking
+          path: _tm-ranking
+      - name: Copiar dados e motor para o site
+        run: scripts/sincronizar_dados.sh _tm-clubes _tm-ranking
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
